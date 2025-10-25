@@ -4,6 +4,12 @@
 #include <respSensor.h>
 //other includes? interrupt etc as needed
 
+int testHrVal = 0;
+int testtempVal = 0;
+int testRespVal = 0;
+int testBpVal = 0;
+//set values within individual respective functions to mimic getting from sensors
+//confirm good/bad values respond correctly (no server/risk assessment right now, connect later)
 
 //global variables
   //timer variable
@@ -40,3 +46,4 @@ int main(void){
 
 
 }
+
