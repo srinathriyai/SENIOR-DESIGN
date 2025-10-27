@@ -3,6 +3,7 @@
 //stores average blood pressure data as ____ variable (name)
 
 #include <Arduino.h>
+#include "Adafruit_MPRLS.h"
 
 // FOR CIRCUIT DIAGRAM REFER TO: FEASIBILITY STUDY - BP MONITOR CIRCUIT DIAGRAM
 // Initialize 2, 3, 4, 5, SCL, and SDA pins
