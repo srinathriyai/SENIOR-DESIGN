@@ -1,5 +1,6 @@
 //spO2 Blood Oxygen Sensor Block
-//
+//takes spO2 for ___ seconds and generates ____ samples
+//stores average heart rate data as ____ variable (name)
 
 
 //FROM SPARKFUN library in arduino IDE
