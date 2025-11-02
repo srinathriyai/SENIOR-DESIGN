@@ -2,55 +2,101 @@
 //takes temperature for ___ seconds and generates ____ samples
 //stores average data as ____ variable (name)
 
-//#include <Arduino.h>
-#include <stdio.h> //here for testing, CHANGED platform.ini to framework = espidf  instead of arduino
-#include <string.h>
-//IF ARDUINO PLUGGED IN CHANGE ^^^^^
+//reads temperature data from the MLX90614 infrared sensor using I2C.
+//samples data for a fixed duration, averages the samples, stores the result in a variable (avgTempC).
+ 
+//avgTempC sent to cloud API or LLM system for rank setting ?
 
-//FROM Arduino library 
-/***************************************************
-  This is a library example for the MLX90614 Temp Sensor
 
-  Designed specifically to work with the MLX90614 sensors in the
-  adafruit shop
-  ----> https://www.adafruit.com/products/1747 3V version
-  ----> https://www.adafruit.com/products/1748 5V version
+//Edited from arduino library given example *****
 
-  These sensors use I2C to communicate, 2 pins are required to
-  interface
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit and open-source hardware by purchasing
-  products from Adafruit!
+#include <Arduino.h>          // Core Arduino functions (setup, loop, Serial, etc.)
+#include <Wire.h>             // For I2C communication (MLX90614 uses I2C)
+#include <Adafruit_MLX90614.h> // Official Adafruit library for the MLX90614 sensor
 
-  Written by Limor Fried/Ladyada for Adafruit Industries.
-  BSD license, all text above must be included in any redistribution
- ****************************************************/
+// ======== USER CONFIGURATION ======== //
+//constants for how long and how often temperature is read
+#define SAMPLE_DURATION_MS 5000   //total duration for one data collection cycle (in ms)
+#define SAMPLE_INTERVAL_MS 500    //time between each temperature reading (in ms)
+// Example: 5000 ms / 500 ms = 10 total samples per cycle
+// =================================== //
 
-#include <Adafruit_MLX90614.h>
-
+// Create a sensor object named 'mlx' from the Adafruit MLX90614 class
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 
+// Variable to store the averaged temperature result
+float avgTempC = 0.0;
+
+// ================== SETUP FUNCTION ================== //
 void setup() {
-  Serial.begin(9600);
-  while (!Serial);
+  Serial.begin(115200);     // Start serial communication for debugging at 115200 baud
+  while (!Serial);          // Wait until serial connection is established (optional but good practice)
 
-  Serial.println("Adafruit MLX90614 test");
+  Serial.println("Initializing Temperature Sensor Block..."); // Print startup message
 
-  if (!mlx.begin()) {
-    Serial.println("Error connecting to MLX sensor. Check wiring.");
-    while (1);
-  };
+  // Initialize the MLX90614 sensor over I2C
+  if (!mlx.begin()) {       // mlx.begin() returns false if communication fails
+    Serial.println("Error connecting to MLX90614 sensor. Check wiring!"); // Error message
+    while (1);              // Stop the program here if sensor is not detected
+  }
 
-  Serial.print("Emissivity = "); Serial.println(mlx.readEmissivity());
-  Serial.println("================================================");
+  //read and print the emissivity setting of the sensor
+  Serial.print("Emissivity: ");
+  Serial.println(mlx.readEmissivity());
+
+  Serial.println("========================================"); // Divider line
 }
+// ==================================================== //
+
+
 
 void loop() {
-  Serial.print("Ambient = "); Serial.print(mlx.readAmbientTempC());
-  Serial.print("*C\tObject = "); Serial.print(mlx.readObjectTempC()); Serial.println("*C");
-  Serial.print("Ambient = "); Serial.print(mlx.readAmbientTempF());
-  Serial.print("*F\tObject = "); Serial.print(mlx.readObjectTempF()); Serial.println("*F");
+  //starting time of measurement cycle
+  unsigned long startTime = millis();
 
-  Serial.println();
-  delay(500);
+  //variables for summing and counting temperature readings
+  float sumTemp = 0.0;     //accumulates all temperature readings
+  int sampleCount = 0;     //counts how many samples have been taken
+
+  Serial.println("Starting temperature data collection...");
+
+  //sample until SAMPLE_DURATION_MS (time between thats set on patient)
+  while (millis() - startTime < SAMPLE_DURATION_MS) {
+    //read object temperature in Celsius from the sensor
+    float temp = mlx.readObjectTempC();
+
+    //tracking the sum
+    sumTemp += temp;
+
+    //inc
+    sampleCount++;
+
+    //print for debugging atm
+    Serial.print("Sample ");
+    Serial.print(sampleCount);
+    Serial.print(": ");
+    Serial.print(temp);
+    Serial.println(" °C");
+
+    //wait time between sampling, implement overhaul option from computer??
+    delay(SAMPLE_INTERVAL_MS);
+  }
+
+  //after data collection, calculate the average temperature
+  if (sampleCount > 0) {
+    avgTempC = sumTemp / sampleCount;     //avg = total sum/samples
+  }
+
+  //print averaged result over serial monitor for testing
+  Serial.print("Average Object Temperature = ");
+  Serial.print(avgTempC);        //holds average temp value use later for LLM sending
+  Serial.println(" °C");
+
+  //
+  //integrate sending via bluetooth or cloud API
+  //
+  
+  //wait 10 seconds before starting the next measurement cycle
+  delay(10000);
 }
+
