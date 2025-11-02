@@ -1,86 +1,109 @@
 //Heart Rate Sensor block
-//takes heart rate/pulse for ___ seconds and generates ____ samples
+//takes heart rate/pulse for 20 seconds and generates average value
 //stores average heart rate data as ____ variable (name)
 
-//#include <Arduino.h>
-#include <stdio.h> //here for testing, CHANGED platform.ini to framework = espidf  instead of arduino
-#include <string.h>
-//IF ARDUINO PLUGGED IN CHANGE ^^^^^
+
+//code edited+revised from sparkfun arduino library
 
 //Heart Rate Sensor block
-//takes heart rate/pulse readings for a fixed time window and averages multiple samples
-//stores average heart rate data as beatAvg variable
-
-//code edited from sparkfun arduino library
+//takes heart rate/pulse readings for SAMPLE_DURATION_MS milliseconds and averages them
+//stores average heart rate data as avgBPM variable
 
 #include <Arduino.h>           //basic Arduino functions
-#include <Wire.h>              //needed for I2C communication
-#include "MAX30105.h"          //SparkFun library for MAX30102/MAX30105 sensor
-#include "heartRate.h"         //includes beat detection algorithm
+#include <Wire.h>              //I2C communication library
+#include "MAX30105.h"          //SparkFun library for MAX30102/MAX30105
+#include "heartRate.h"         //beat detection algorithm
 
-MAX30105 particleSensor;       //create sensor object
+//===USER CONFIGURATION===//
+#define SAMPLE_DURATION_MS 20000  //20 seconds
+#define RATE_SIZE 8               //8-beat smoothing window
+//=========================//
 
-const byte RATE_SIZE = 4;      //number of samples used for averaging
-byte rates[RATE_SIZE];         //circular buffer to hold heart rate samples
-byte rateSpot = 0;             //index for current sample position
-long lastBeat = 0;             //stores the time (ms) of the last detected heartbeat
+MAX30105 particleSensor;          //create MAX30105 sensor object
 
-float beatsPerMinute = 0;      //holds instantaneous BPM value
-int beatAvg = 0;               //holds averaged BPM value across RATE_SIZE samples
+const byte RATE_SIZE = 4;         //number of samples used for smoothing BPM
+byte rates[RATE_SIZE];            //buffer to store BPM samples
+byte rateSpot = 0;                //current index in sample buffer
+long lastBeat = 0;                //timestamp of the last detected beat
+
+float beatsPerMinute = 0;         //instantaneous BPM
+float avgBPM = 0;                 //averaged BPM result
 
 void setup() {
-  Serial.begin(115200);                              //start serial communication for debug
-  Serial.println("Initializing Heart Rate Sensor...");
+  Serial.begin(115200);           //initialize serial communication for debugging
+  Serial.println("Initializing Heart Rate Sensor Block...");
 
-  //try to initialize the MAX30102/MAX30105 sensor
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {  
-    Serial.println("MAX30102 not found. Check wiring/power.");  
-    while (1);                 //stop program if initialization fails
+  //initialize MAX30102/MAX30105 sensor via I2C
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    Serial.println("Error: MAX30102 not found. Check wiring/power.");
+    while (1);                    //halt program if sensor not detected
   }
 
-  Serial.println("Place your index finger on the sensor with steady pressure.");
+  //configure sensor LEDs
+  particleSensor.setup();                      //default configuration
+  particleSensor.setPulseAmplitudeRed(0x0A);   //enable red LED (low power)
+  particleSensor.setPulseAmplitudeGreen(0x00); //disable green LED
 
-  particleSensor.setup();                      //configure sensor with default settings
-  particleSensor.setPulseAmplitudeRed(0x0A);   //enable red LED at low brightness
-  particleSensor.setPulseAmplitudeGreen(0x00); //disable green LED (not needed for HR)
+  Serial.println("Place your finger steadily on the sensor...");
 }
 
 void loop() {
-  long irValue = particleSensor.getIR();       //read IR signal value from sensor
+  unsigned long startTime = millis();          //mark start time
+  float bpmSum = 0;                            //accumulate BPM values
+  int sampleCount = 0;                         //track number of valid samples
 
-  //check if a heartbeat occurred using the IR signal
-  if (checkForBeat(irValue) == true) {         
-    long delta = millis() - lastBeat;          //calculate time since last beat
-    lastBeat = millis();                       //update last beat time
+  Serial.println("Starting heart rate measurement cycle...");
 
-    beatsPerMinute = 60 / (delta / 1000.0);    //convert time delta to BPM
+  //collect data until total elapsed time exceeds SAMPLE_DURATION_MS
+  while (millis() - startTime < SAMPLE_DURATION_MS) {
+    long irValue = particleSensor.getIR();     //read IR value from sensor
 
-    //ignore false readings outside human range
-    if (beatsPerMinute < 255 && beatsPerMinute > 20) {
-      rates[rateSpot++] = (byte)beatsPerMinute;      //store current BPM sample
-      rateSpot %= RATE_SIZE;                          //wrap buffer index if needed
+    //check if a beat is detected from IR signal
+    if (checkForBeat(irValue) == true) {
+      long delta = millis() - lastBeat;        //time since last beat
+      lastBeat = millis();                     //update beat timestamp
 
-      //compute average BPM over last RATE_SIZE samples
-      beatAvg = 0;
-      for (byte x = 0; x < RATE_SIZE; x++)
-        beatAvg += rates[x];
-      beatAvg /= RATE_SIZE;
+      beatsPerMinute = 60 / (delta / 1000.0);  //convert time delta to BPM
+
+      //validate BPM range for human heart rate
+      if (beatsPerMinute < 255 && beatsPerMinute > 20) {
+        rates[rateSpot++] = (byte)beatsPerMinute;  //store BPM in buffer
+        rateSpot %= RATE_SIZE;                     //wrap buffer index
+
+        //compute running average of BPM samples
+        int beatAvg = 0;
+        for (byte x = 0; x < RATE_SIZE; x++)
+          beatAvg += rates[x];
+        beatAvg /= RATE_SIZE;
+
+        bpmSum += beatAvg;                     //add averaged reading to total sum
+        sampleCount++;                         //count valid sample
+      }
     }
+
+    //optional debug output
+    Serial.print("IR="); Serial.print(irValue);
+    Serial.print(", BPM="); Serial.print(beatsPerMinute);
+    Serial.print(", Samples="); Serial.println(sampleCount);
+
+    delay(SAMPLE_INTERVAL_MS);                 //wait before next read
   }
 
-  //print current readings for debugging
-  Serial.print("IR=");
-  Serial.print(irValue);
-  Serial.print(", BPM=");
-  Serial.print(beatsPerMinute);
-  Serial.print(", Avg BPM=");
-  Serial.print(beatAvg);
+  //compute final average BPM after sampling period
+  if (sampleCount > 0)
+    avgBPM = bpmSum / sampleCount;
+  else
+    avgBPM = 0;                               //no valid beats detected
 
-  //check if finger is not placed properly on sensor
-  if (irValue < 50000)
-    Serial.print(" No finger detected");
+  //display result for debugging
+  Serial.print("Average Heart Rate = ");
+  Serial.print(avgBPM);
+  Serial.println(" BPM");
 
-  Serial.println();
+  //===Integration Placeholder===//
+  //This is where you would send avgBPM to your Bluetooth/cloud API:
+  //sendToCloud("heart_rate", avgBPM);
+  //=============================//
 
-  delay(100);  //delay for staility
+  delay(10000);                               //wait before next measurement cycle
 }
