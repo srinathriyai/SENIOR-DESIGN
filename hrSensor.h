@@ -1,6 +1,6 @@
 //Heart Rate Sensor block
 //takes heart rate/pulse for 20 seconds and generates average value
-//stores average heart rate data as ____ variable (name)
+//stores average heart rate data as ____avgBPM____ variable (name)
 
 
 //code edited+revised from sparkfun arduino library
@@ -107,3 +107,4 @@ void loop() {
 
   delay(10000);                               //wait before next measurement cycle
 }
+
