@@ -19,25 +19,25 @@
 #define SAMPLE_DURATION_MS 5000   //total duration for one data collection cycle (in ms)
 #define SAMPLE_INTERVAL_MS 500    //time between each temperature reading (in ms)
 // Example: 5000 ms / 500 ms = 10 total samples per cycle
-// =================================== //
 
-// Create a sensor object named 'mlx' from the Adafruit MLX90614 class
+
+//sensor object named 'mlx' from the Adafruit MLX90614 class
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 
-// Variable to store the averaged temperature result
+//variable storing the averaged temperature result
 float avgTempC = 0.0;
 
 // ================== SETUP FUNCTION ================== //
 void setup() {
-  Serial.begin(115200);     // Start serial communication for debugging at 115200 baud
-  while (!Serial);          // Wait until serial connection is established (optional but good practice)
+  Serial.begin(115200);     //sart serial communication for debugging at 115200 baud
+  while (!Serial);          //(optional wait for debugging or sm)
 
-  Serial.println("Initializing Temperature Sensor Block..."); // Print startup message
+  Serial.println("Initializing Temperature Sensor Block..."); //startup message for debugging, confirm starting..
 
-  // Initialize the MLX90614 sensor over I2C
-  if (!mlx.begin()) {       // mlx.begin() returns false if communication fails
-    Serial.println("Error connecting to MLX90614 sensor. Check wiring!"); // Error message
-    while (1);              // Stop the program here if sensor is not detected
+  //initialize I2c
+  if (!mlx.begin()) {                                                   //mlx.begin() returns false if communication fails
+    Serial.println("Error connecting to MLX90614 sensor. Check wiring!");   //error if not workd
+    while (1);                             //stop the program here if sensor is not detected
   }
 
   //read and print the emissivity setting of the sensor
@@ -46,7 +46,7 @@ void setup() {
 
   Serial.println("========================================"); // Divider line
 }
-// ==================================================== //
+
 
 
 
@@ -99,4 +99,5 @@ void loop() {
   //wait 10 seconds before starting the next measurement cycle
   delay(10000);
 }
+
 
