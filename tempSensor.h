@@ -1,6 +1,6 @@
 //Temperature Sensor block
-//takes temperature for ___ seconds and generates ____ samples
-//stores average data as ____ variable (name)
+//takes temperature for 10 seconds and generates 40 samples, then averaged
+//stores average data as ____avgTempC_____ variable (name)
 
 //reads temperature data from the MLX90614 infrared sensor using I2C.
 //samples data for a fixed duration, averages the samples, stores the result in a variable (avgTempC).
@@ -16,8 +16,8 @@
 
 // ======== USER CONFIGURATION ======== //
 //constants for how long and how often temperature is read
-#define SAMPLE_DURATION_MS 5000   //total duration for one data collection cycle (in ms)
-#define SAMPLE_INTERVAL_MS 500    //time between each temperature reading (in ms)
+#define SAMPLE_DURATION_MS 10000  //10 seconds
+#define SAMPLE_INTERVAL_MS 250    //sample every 250 ms -> ~40 samples
 // Example: 5000 ms / 500 ms = 10 total samples per cycle
 
 
@@ -99,5 +99,6 @@ void loop() {
   //wait 10 seconds before starting the next measurement cycle
   delay(10000);
 }
+
 
 
