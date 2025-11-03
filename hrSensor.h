@@ -1,111 +1,176 @@
 //Heart Rate + SpO2 Sensor block
 //takes heart rate/pulse for 20 seconds and generates 500 samples
-//stores average heart rate data as ____avgHearRate____ variable (name)
-//stores average SpO2 as ____avgSpO2_____ variable (name)
-
+//stores average heart rate data as ____bpmFiltered____ variable (name)
+//stores average SpO2 as ____spo2Smoothed_____ variable (name)
+//plan to change variables later with LLM application
 
 //code edited+revised from sparkfun arduino library
 
-#include <Wire.h>                //for I2C communication
-#include "MAX30105.h"            //SparkFun MAX3010x sensor library
-#include "spo2_algorithm.h"      //SparkFun algorithm for HR and SpO2
+#include <Wire.h>
+#include "MAX30105.h"
 
-MAX30105 particleSensor;         //create sensor object
+MAX30105 particleSensor;
 
-#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-//for Arduino Uno (limited SRAM)
-uint16_t irBuffer[500];          //IR LED data buffer (16-bit)
-uint16_t redBuffer[500];         //RED LED data buffer (16-bit)
-#else
-//for ESP32 or boards with more memory
-uint32_t irBuffer[500];          //IR LED data buffer (32-bit)
-uint32_t redBuffer[500];         //RED LED data buffer (32-bit)
-#endif
+//dc baseline values that track the average signal to get the ac part
+float irDC = 0;
+float redDC = 0;
 
-int32_t bufferLength = 500;      //total samples collected (~20 seconds @25Hz)
-int32_t spo2;                    //current SpO2 value
-int8_t validSPO2;                //SpO2 validity flag
-int32_t heartRate;               //current heart rate
-int8_t validHeartRate;           //HR validity flag
+//finger detection and timing setup
+#define IR_THRESHOLD 50000       //finger detection threshold value (adjust if needed)
+#define START_DELAY 3000         //wait 3 seconds after finger placed to stabilize
+#define SAMPLE_DELAY 40          //~25hz sample rate
+#define MEASUREMENT_TIME 30000   //measure for 30 seconds total
 
-float avgSpO2 = 0;               //average SpO2 result
-float avgHeartRate = 0;          //average heart rate result
-float sumSpO2 = 0;               //sum for SpO2 averaging
-float sumHeartRate = 0;          //sum for HR averaging
-int sampleCount = 0;             //number of valid samples in averaging
+bool fingerOnSensor = false;
+unsigned long fingerDetectedTime = 0;
+bool measurementStarted = false;
+unsigned long startTime = 0;
 
-byte readLED = 13;               //blinks to show active sampling
+//ac scaling factor to make numbers smaller for easier reading
+#define AC_SCALE 0.1             //scale factor for debugging
+
+//beat detection parameters
+#define BEAT_THRESHOLD 50        //how big the ac swing must be to count a beat
+#define MIN_BEAT_INTERVAL 500    //min time (ms) between beats (~120 bpm max)
+
+float lastIRAC = 0;
+unsigned long lastBeatTime = 0;
+
+//bpm smoothing filter
+float bpmFiltered = 0;
+float bpmAlpha = 0.2;
+int bpmCount = 0;
+
+//sums for average ir/red values
+float irSum = 0;
+float redSum = 0;
+unsigned int sampleCount = 0;
+
+//spo2 smoothing filter (exponential moving average)
+float spo2Smoothed = 0;
+float spo2Alpha = 0.3;
 
 void setup() {
-  Serial.begin(9600);            //initialize serial output
-  pinMode(readLED, OUTPUT);      //set onboard LED pin to output
-
-  //initialize sensor and check connection
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println(F("MAX30102 not found. Check wiring/power."));
+  Serial.begin(9600);
+  if (!particleSensor.begin()) {
+    Serial.println("MAX30102 not found! check wiring/power.");
     while (1);
   }
 
-  Serial.println(F("Attach sensor to finger firmly. Press any key to start."));
-  while (Serial.available() == 0); //wait until user presses key
-  Serial.read();                   //clear input
+  particleSensor.setup();
+  particleSensor.setPulseAmplitudeIR(50);   //turn on ir led
+  particleSensor.setPulseAmplitudeRed(50);  //turn on red led
 
-  //configure sensor parameters for accurate readings
-  byte ledBrightness = 100;     //LED brightness (0–255)
-  byte sampleAverage = 4;       //average samples for smoothing (1–32)
-  byte ledMode = 2;             //use Red + IR LEDs
-  byte sampleRate = 25;         //25 samples per second (~medical rate)
-  int pulseWidth = 411;         //longer pulse = more light
-  int adcRange = 4096;          //ADC range for accurate reading
-
-  //apply configuration
-  particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
-  Serial.println(F("Sensor initialized. Collecting HR and SpO2 data..."));
+  Serial.println("place finger on sensor to start...");
 }
 
 void loop() {
-  //collect 500 samples (~20 seconds)
-  for (int i = 0; i < bufferLength; i++) {
-    while (particleSensor.available() == false) particleSensor.check(); //wait for new sample
+  long ir = particleSensor.getIR();   //read ir light amount
+  long red = particleSensor.getRed(); //read red light amount
 
-    redBuffer[i] = particleSensor.getRed(); //get RED LED value
-    irBuffer[i] = particleSensor.getIR();   //get IR LED value
-    particleSensor.nextSample();            //move to next sample
-
-    digitalWrite(readLED, !digitalRead(readLED)); //blink LED on each read
+  //check if a finger is placed on the sensor
+  if (ir > IR_THRESHOLD && !fingerOnSensor) {
+    fingerOnSensor = true;
+    fingerDetectedTime = millis();  //record when finger first detected
+    measurementStarted = false;
+    irDC = ir;
+    redDC = red;
+    Serial.println("finger detected, waiting 3 seconds for signal to stabilize...");
   }
 
-  //use SparkFun’s algorithm to calculate HR and SpO2
-  maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer,
-                                         &spo2, &validSPO2, &heartRate, &validHeartRate);
-
-  //update averages if valid readings are produced
-  if (validSPO2 && validHeartRate) {
-    sumSpO2 += spo2;            //add current SpO2 to sum
-    sumHeartRate += heartRate;  //add current HR to sum
-    sampleCount++;              //increment valid count
+  //check if finger is removed
+  if (ir < IR_THRESHOLD && fingerOnSensor) {
+    fingerOnSensor = false;
+    measurementStarted = false;
+    Serial.println("finger removed, measurement stopped.\n");
   }
 
-  //calculate average HR and SpO2 after full 20s sampling
-  if (sampleCount > 0) {
-    avgSpO2 = sumSpO2 / sampleCount;         //compute average SpO2
-    avgHeartRate = sumHeartRate / sampleCount; //compute average HR
+  //update baseline dc levels (slowly follows overall brightness)
+  irDC = 0.9 * irDC + 0.1 * ir;
+  redDC = 0.9 * redDC + 0.1 * red;
+
+  //once finger has been on long enough, start measuring
+  if (fingerOnSensor && (millis() - fingerDetectedTime >= START_DELAY)) {
+    if (!measurementStarted) {
+      measurementStarted = true;
+      startTime = millis();
+      bpmFiltered = 0;
+      bpmCount = 0;
+      irSum = 0;
+      redSum = 0;
+      sampleCount = 0;
+      lastIRAC = 0;
+      lastBeatTime = 0;
+      spo2Smoothed = 0;
+      Serial.println("starting 30-second measurement...");
+    }
+
+    //calculate ac (changing part of signal)
+    float irAC = (ir - irDC) * AC_SCALE;
+    float redAC = (red - redDC) * AC_SCALE;
+
+    //print debug info
+    Serial.print("IR="); Serial.print(ir);
+    Serial.print(" RED="); Serial.print(red);
+    Serial.print(" IR AC="); Serial.println(irAC);
+
+    //beat detection using zero-cross and thresholds
+    if ((irAC > BEAT_THRESHOLD && lastIRAC <= BEAT_THRESHOLD) ||
+        (irAC < -BEAT_THRESHOLD && lastIRAC >= -BEAT_THRESHOLD)) {
+      unsigned long now = millis();
+      if (lastBeatTime > 0 && (now - lastBeatTime) >= MIN_BEAT_INTERVAL) {
+        float bpm = 60000.0 / (now - lastBeatTime); //convert ms to bpm
+        if (bpm >= 40 && bpm <= 180) { //only count realistic heart rates
+          bpmCount++;
+          if (bpmFiltered == 0) bpmFiltered = bpm; //first reading
+          else bpmFiltered = bpmAlpha * bpm + (1 - bpmAlpha) * bpmFiltered; //low pass filter
+          Serial.print("beat detected! bpm="); Serial.println(bpmFiltered, 1);
+        }
+      }
+      lastBeatTime = now;
+    }
+    lastIRAC = irAC;
+
+    //add ir and red values to sum for averaging later
+    irSum += ir;
+    redSum += red;
+    sampleCount++;
+
+    //check if 30 seconds passed yet
+    if (millis() - startTime >= MEASUREMENT_TIME) {
+      measurementStarted = false;
+      fingerOnSensor = false;
+
+      //compute averages
+      float irAvg = irSum / sampleCount;
+      float redAvg = redSum / sampleCount;
+
+      //approximate spo2 using ratio of ac/dc components
+      float irACAvg = (irAvg - irDC) * AC_SCALE;
+      float redACAvg = (redAvg - redDC) * AC_SCALE;
+      float ratio = redACAvg / (irACAvg + 0.001); //add small value to avoid divide by zero
+      float spo2 = 104 - 17 * ratio; //basic spo2 estimation equation
+      if (spo2 > 100) spo2 = 100;
+      if (spo2 < 0) spo2 = 0;
+
+      //apply exponential smoothing to spo2 value
+      if (spo2Smoothed == 0) spo2Smoothed = spo2;
+      else spo2Smoothed = spo2Alpha * spo2 + (1 - spo2Alpha) * spo2Smoothed;
+
+      Serial.println("\nmeasurement complete!");
+      Serial.print("average IR="); Serial.println(irAvg, 1);
+      Serial.print("average RED="); Serial.println(redAvg, 1);
+
+      if (bpmCount > 0) {
+        Serial.print("average BPM (smoothed)="); Serial.println(bpmFiltered, 1);
+        Serial.print("smoothed SpO2="); Serial.println(spo2Smoothed, 1);
+      } else {
+        Serial.println("no beats detected, try adjusting finger pressure or brightness.");
+      }
+
+      Serial.println("remove finger to restart measurement.\n");
+    }
+
+    delay(SAMPLE_DELAY); //wait a bit before taking next reading
   }
-
-  //print current and average readings to serial
-  Serial.print(F("Current SpO2="));
-  Serial.print(spo2);
-  Serial.print(F("%, HR="));
-  Serial.print(heartRate);
-  Serial.print(F(" BPM | Avg SpO2="));
-  Serial.print(avgSpO2);
-  Serial.print(F("%, Avg HR="));
-  Serial.println(avgHeartRate);
-
-  //reset sums and repeat every 20 seconds
-  sumSpO2 = 0;
-  sumHeartRate = 0;
-  sampleCount = 0;
-
-  Serial.println(F("20-second cycle complete. Restarting measurement..."));
 }
