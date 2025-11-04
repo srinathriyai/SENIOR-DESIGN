@@ -1,5 +1,5 @@
 //Heart Rate + SpO2 Sensor block
-//takes heart rate/pulse for 20 seconds and generates 500 samples
+//takes heart rate/pulse for 30 seconds and generates 500 samples
 //stores average heart rate data as ____bpmFiltered____ variable (name)
 //stores average SpO2 as ____spo2Smoothed_____ variable (name)
 //plan to change variables later with LLM application
@@ -174,3 +174,4 @@ void loop() {
     delay(SAMPLE_DELAY); //wait a bit before taking next reading
   }
 }
+
