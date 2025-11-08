@@ -1,6 +1,6 @@
 //Temperature Sensor block
 //takes temperature for 10 seconds and generates 40 samples, then averaged
-//stores average data as ____avgTempC_____ variable (name)
+//stores average data as ____objectAvg_____ variable (name)
 
 //reads temperature data from the MLX90614 infrared sensor using I2C.
 //samples data for a fixed duration, averages the samples, stores the result in a variable (avgTempC).
@@ -9,96 +9,74 @@
 
 
 //Edited from arduino library given example *****
+#include <Wire.h>
+#include <Adafruit_MLX90614.h>
 
-#include <Arduino.h>          // Core Arduino functions (setup, loop, Serial, etc.)
-#include <Wire.h>             // For I2C communication (MLX90614 uses I2C)
-#include <Adafruit_MLX90614.h> // Official Adafruit library for the MLX90614 sensor
-
-// ======== USER CONFIGURATION ======== //
-//constants for how long and how often temperature is read
-#define SAMPLE_DURATION_MS 10000  //10 seconds
-#define SAMPLE_INTERVAL_MS 250    //sample every 250 ms -> ~40 samples
-// Example: 5000 ms / 500 ms = 10 total samples per cycle
-
-
-//sensor object named 'mlx' from the Adafruit MLX90614 class
+// create sensor object
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 
-//variable storing the averaged temperature result
-float avgTempC = 0.0;
 
-// ================== SETUP FUNCTION ================== //
+
+// define how long to sample (ms) and delay between readings
+#define SAMPLE_TIME 15000   // 15 seconds total sampling
+#define SAMPLE_DELAY 500    // 0.5 second delay between readings
+
 void setup() {
-  Serial.begin(115200);     //sart serial communication for debugging at 115200 baud
-  while (!Serial);          //(optional wait for debugging or sm)
+  Serial.begin(115200);
+  while(!Serial);
 
-  Serial.println("Initializing Temperature Sensor Block..."); //startup message for debugging, confirm starting..
+  Serial.println("mlx90614 temp reader starting...");
 
-  //initialize I2c
-  if (!mlx.begin()) {                                                   //mlx.begin() returns false if communication fails
-    Serial.println("Error connecting to MLX90614 sensor. Check wiring!");   //error if not workd
-    while (1);                             //stop the program here if sensor is not detected
+
+
+  // initialize the sensor
+  if (!mlx.begin()) {
+    Serial.println("error connecting to mlx sensor, check wiring");
+    while (1); // stop if sensor not found
   }
-
-  //read and print the emissivity setting of the sensor
-  Serial.print("Emissivity: ");
-  Serial.println(mlx.readEmissivity());
-
-  Serial.println("========================================"); // Divider line
+  
+  mlx.writeEmissivity(0.98);  // slightly closer to real skin
+  Serial.println("sensor initialized, starting readings soon...");
 }
-
-
-
 
 void loop() {
-  //starting time of measurement cycle
-  unsigned long startTime = millis();
+  unsigned long startTime = millis(); // record start time
+  float ambientSum = 0;               // accumulator for ambient temp
+  float objectSum = 0;                // accumulator for object temp
+  int sampleCount = 0;                // count how many samples we take
 
-  //variables for summing and counting temperature readings
-  float sumTemp = 0.0;     //accumulates all temperature readings
-  int sampleCount = 0;     //counts how many samples have been taken
+  // loop until 15 seconds have passed
+  while (millis() - startTime < SAMPLE_TIME) {
+    // read ambient and object temp in c
+    float ambientC = mlx.readAmbientTempC();
+    float objectC  = mlx.readObjectTempC();
 
-  Serial.println("Starting temperature data collection...");
+    // convert to fahrenheit
+    float ambientF = ambientC * 9.0 / 5.0 + 32;
+    float objectF  = objectC * 9.0 / 5.0 + 32;
 
-  //sample until SAMPLE_DURATION_MS (time between thats set on patient)
-  while (millis() - startTime < SAMPLE_DURATION_MS) {
-    //read object temperature in Celsius from the sensor
-    float temp = mlx.readObjectTempC();
-
-    //tracking the sum
-    sumTemp += temp;
-
-    //inc
+    // accumulate values for averaging
+    ambientSum += ambientF;
+    objectSum  += objectF;
     sampleCount++;
 
-    //print for debugging atm
-    Serial.print("Sample ");
-    Serial.print(sampleCount);
-    Serial.print(": ");
-    Serial.print(temp);
-    Serial.println(" °C");
+    // print each reading
+    Serial.print("ambient ="); Serial.print(ambientF); Serial.print("*F\t");
+    Serial.print("object ="); Serial.println(objectF); Serial.println("*F");
 
-    //wait time between sampling, implement overhaul option from computer??
-    delay(SAMPLE_INTERVAL_MS);
+    delay(SAMPLE_DELAY); // wait 0.5s before next reading
   }
 
-  //after data collection, calculate the average temperature
-  if (sampleCount > 0) {
-    avgTempC = sumTemp / sampleCount;     //avg = total sum/samples
-  }
+  // compute averages after loop
+  float ambientAvg = ambientSum / sampleCount;
+  float objectAvg  = objectSum / sampleCount;
 
-  //print averaged result over serial monitor for testing
-  Serial.print("Average Object Temperature = ");
-  Serial.print(avgTempC);        //holds average temp value use later for LLM sending
-  Serial.println(" °C");
+  // print average results
+  Serial.println("====================================");
+  Serial.print("average ambient temp ="); Serial.print(ambientAvg); Serial.println("*F");
+  Serial.print("average object temp ="); Serial.print(objectAvg); Serial.println("*F");
+  Serial.println("====================================");
 
-  //
-  //integrate sending via bluetooth or cloud API
-  //
-  
-  //wait 10 seconds before starting the next measurement cycle
-  delay(10000);
+  // wait a bit before starting new measurement
+  delay(2000);
 }
-
-
-
