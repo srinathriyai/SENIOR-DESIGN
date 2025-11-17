@@ -19,6 +19,8 @@
 #include <curl/curl.h> // libcurl library
 
 #include "Risk_Assessment.h"   // <--- imported risk level functions
+#include "httplib.h"
+#include "WebServer.h"
 
 using namespace std;
 
@@ -249,29 +251,23 @@ std::string sendToLLM(const std::string& prompt) {
 // --------------------------------Step 6: Main loop simulation------------------------------------
 
 int main() {
-    // Example vitals 
     Vitals current = {110, 92, 38.2, 22, 128, 86};
 
-    // Compute risks
-    map<string, int> risk;
+    std::map<std::string, int> risk;
     risk["HR"] = calc_HR_risk(current.HR);
     risk["SpO2"] = calc_SpO2_risk(current.SpO2);
     risk["Temp"] = calc_Temp_risk(current.Temp);
     risk["Resp"] = calc_Resp_risk(current.Resp);
     risk["BP"] = calc_BP_risk(current.BP_sys, current.BP_dia);
 
-    // Build and display prompt
-    string prompt = generatePrompt(current, risk);
-    cout << "===== Prompt Sent to LLM =====\n" << prompt << endl;
+    std::string prompt = generatePrompt(current, risk);
+    std::string llmResponse = sendToLLM(prompt);
 
-    // Send to llama.cpp and get results
-    string llmResponse = sendToLLM(prompt);
-    cout << "\n===== LLM Response =====\n" << llmResponse << endl;
+    // Terminal output (raw)
+    std::cout << "===== Raw LLM Response =====\n" << llmResponse << "\n\n";
 
-    // Save results
-    ofstream log("llm_reports.txt", ios::app);
-    log << "Prompt:\n" << prompt << "\n---Response---\n" << llmResponse << "\n\n";
-    log.close();
+    // Launch the dashboard
+    startWebServer(current, llmResponse);
 
     return 0;
 }
