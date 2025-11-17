@@ -66,5 +66,5 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     });
 
     std::cout << "Web UI running at http://localhost:5000\n";
-    svr.listen("0.0.0.0", 5000);
+    svr.listen("0.0.0.0", 8000);
 }
