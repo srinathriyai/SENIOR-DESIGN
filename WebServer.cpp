@@ -1,14 +1,15 @@
 #include "WebServer.h"
 #include <iostream>
-#include <sstream>
-#include <string>
+#include <map>
 
-static std::string riskColor(int risk) {
+// Convert risk score to color
+std::string riskColor(int risk) {
     switch (risk) {
-        case 0: return "#4CAF50"; // green
-        case 1: return "#FFC107"; // yellow
-        case 2: return "#FF5722"; // orange
-        default: return "#D32F2F"; // red
+        case 0: return "#2ecc71"; // green
+        case 1: return "#f1c40f"; // yellow
+        case 2: return "#e67e22"; // orange
+        case 3: return "#e74c3c"; // red
+        default: return "#bdc3c7"; // fallback grey
     }
 }
 
@@ -16,20 +17,15 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     httplib::Server svr;
 
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
-
-        // Extract colors for each vital
-        std::string hrColor   = riskColor(calc_HR_risk(current.HR));
-        std::string spo2Color = riskColor(calc_SpO2_risk(current.SpO2));
-        std::string tempColor = riskColor(calc_Temp_risk(current.Temp));
-        std::string respColor = riskColor(calc_Resp_risk(current.Resp));
-        std::string bpColor   = riskColor(calc_BP_risk(current.BP_sys, current.BP_dia));
-
-        // Clean JSON-ish output for display
-        std::string cleanResp = llmResponse;
-        // Remove newline escapes visually
-        for (size_t pos = 0; (pos = cleanResp.find("\\n", pos)) != std::string::npos; ) {
-            cleanResp.replace(pos, 2, "<br>");
-        }
+        
+        // Generate risk colors
+        std::map<std::string, int> risk = {
+            {"HR", calc_HR_risk(current.HR)},
+            {"SpO2", calc_SpO2_risk(current.SpO2)},
+            {"Temp", calc_Temp_risk(current.Temp)},
+            {"Resp", calc_Resp_risk(current.Resp)},
+            {"BP", calc_BP_risk(current.BP_sys, current.BP_dia)}
+        };
 
         std::string html = R"(
         <html>
@@ -38,144 +34,111 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
             <style>
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                    margin: 20px;
-                    background: #f0f2f5;
+                    margin: 0;
+                    background: #f2f3f5;
+                    padding: 40px;
                 }
+
                 .container {
-                    max-width: 900px;
+                    max-width: 800px;
                     margin: auto;
                 }
-                .card {
-                    background: white;
-                    padding: 25px;
-                    border-radius: 18px;
-                    margin-bottom: 25px;
-                    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-                }
-                h1 {
+
+                h2 {
                     text-align: center;
                     margin-bottom: 25px;
-                }
-                .section-title {
-                    font-size: 20px;
-                    margin-bottom: 10px;
-                    font-weight: 600;
-                    border-left: 5px solid #6a5acd;
-                    padding-left: 10px;
-                }
-                .row {
-                    display: flex;
-                    gap: 20px;
-                    flex-wrap: wrap;
-                }
-                .vital-box {
-                    flex: 1;
-                    min-width: 150px;
-                    background: #fafafa;
-                    padding: 15px;
-                    border-radius: 14px;
-                    box-shadow: inset 0 0 4px rgba(0,0,0,0.05);
-                    text-align: center;
-                }
-                .risk-dot {
-                    display: inline-block;
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 50%;
-                    margin-left: 5px;
-                }
-                .gauge-circle {
-                    width: 120px;
-                    height: 120px;
-                    border-radius: 50%;
-                    margin: auto;
-                    border: 14px solid #ddd;
-                    position: relative;
-                }
-                .gauge-inner {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    font-size: 22px;
                     font-weight: 700;
                 }
-                .thermo-bar {
-                    height: 20px;
-                    border-radius: 10px;
-                    background: #ddd;
-                    overflow: hidden;
+
+                .grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 20px;
                 }
-                .thermo-fill {
-                    height: 100%;
-                    border-radius: 10px;
+
+                .card {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 15px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 }
-                .waveform {
-                    width: 100%;
-                    height: 50px;
+
+                .vital-name {
+                    font-size: 16px;
+                    font-weight: 600;
                 }
-                .summary-text {
-                    font-size: 15px;
-                    line-height: 1.45;
+
+                .vital-value {
+                    font-size: 32px;
+                    font-weight: 700;
+                    margin-top: 5px;
+                }
+
+                .badge {
+                    display: inline-block;
+                    padding: 4px 10px;
+                    color: white;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    margin-top: 6px;
+                }
+
+                .summary-card {
+                    margin-top: 30px;
+                }
+
+                .summary-content {
+                    white-space: pre-wrap;
+                    margin-top: 10px;
+                    line-height: 1.5;
                 }
             </style>
         </head>
-
         <body>
-        <div class='container'>
-            <h1>Vitals Monitoring Dashboard</h1>
+            <div class="container">
+                <h2>Vitals Monitoring Dashboard</h2>
 
-            <!-- HR Gauge -->
-            <div class='card'>
-                <div class='section-title'>Heart Rate</div>
-                <div class='gauge-circle' style='border-color: )" + hrColor + R"(;'>
-                    <div class='gauge-inner'>" + std::to_string((int)current.HR) + R"( bpm</div>
+                <div class="grid">
+        )";
+
+        // ---- Insert dynamic vital cards ----
+        html += "<div class='card'><div class='vital-name'>Heart Rate</div>";
+        html += "<div class='vital-value'>" + std::to_string((int)current.HR) + " bpm</div>";
+        html += "<div class='badge' style='background:" + riskColor(risk["HR"]) + "'>Risk " + std::to_string(risk["HR"]) + "</div></div>";
+
+        html += "<div class='card'><div class='vital-name'>SpO₂</div>";
+        html += "<div class='vital-value'>" + std::to_string((int)current.SpO2) + " %</div>";
+        html += "<div class='badge' style='background:" + riskColor(risk["SpO2"]) + "'>Risk " + std::to_string(risk["SpO2"]) + "</div></div>";
+
+        html += "<div class='card'><div class='vital-name'>Temperature</div>";
+        html += "<div class='vital-value'>" + std::to_string(current.Temp) + " °C</div>";
+        html += "<div class='badge' style='background:" + riskColor(risk["Temp"]) + "'>Risk " + std::to_string(risk["Temp"]) + "</div></div>";
+
+        html += "<div class='card'><div class='vital-name'>Respiratory Rate</div>";
+        html += "<div class='vital-value'>" + std::to_string((int)current.Resp) + " rpm</div>";
+        html += "<div class='badge' style='background:" + riskColor(risk["Resp"]) + "'>Risk " + std::to_string(risk["Resp"]) + "</div></div>";
+
+        html += "<div class='card'><div class='vital-name'>Blood Pressure</div>";
+        html += "<div class='vital-value'>" + std::to_string((int)current.BP_sys) + "/" + std::to_string((int)current.BP_dia) + "</div>";
+        html += "<div class='badge' style='background:" + riskColor(risk["BP"]) + "'>Risk " + std::to_string(risk["BP"]) + "</div></div>";
+
+        // ---- Summary Card ----
+        html += R"(
+                </div>
+
+                <div class="card summary-card">
+                    <div class="vital-name">Clinical Summary</div>
+                    <div class="summary-content">
+        )";
+
+        html += llmResponse;
+
+        html += R"(
+                    </div>
                 </div>
             </div>
-
-            <!-- Temperature Thermometer Bar -->
-            <div class='card'>
-                <div class='section-title'>Temperature</div>
-                <div>Current: <b>)" + std::to_string(current.Temp) + R"( °C</b></div>
-                <div class='thermo-bar'>
-                    <div class='thermo-fill' style='width: )" + std::to_string((current.Temp / 42.0) * 100) + R"(%; background: )" + tempColor + R"(;'></div>
-                </div>
-            </div>
-
-            <!-- Pulse Waveform -->
-            <div class='card'>
-                <div class='section-title'>Pulse Waveform</div>
-                <svg class='waveform'>
-                    <polyline points='0,25 20,10 40,40 60,15 80,30 100,10 120,30 140,5 160,25 180,10 200,25' 
-                              style='fill:none;stroke:)"
-                              + hrColor +
-                              R"(;stroke-width:3;' />
-                </svg>
-            </div>
-
-            <!-- Vitals Boxes -->
-            <div class='card'>
-                <div class='section-title'>All Vitals</div>
-                <div class='row'>
-                    <div class='vital-box'>SpO₂<br><b>)" + std::to_string((int)current.SpO2) + R"( %</b>
-                    <span class='risk-dot' style='background:)"+ spo2Color +R"(';'></span></div>
-
-                    <div class='vital-box'>Resp<br><b>)" + std::to_string((int)current.Resp) + R"( rpm</b>
-                    <span class='risk-dot' style='background:)" + respColor + R"(';'></span></div>
-
-                    <div class='vital-box'>BP<br><b>)" + std::to_string((int)current.BP_sys) + "/" + std::to_string((int)current.BP_dia) + R"(</b>
-                    <span class='risk-dot' style='background:)" + bpColor + R"(';'></span></div>
-                </div>
-            </div>
-
-            <!-- Summary -->
-            <div class='card'>
-                <div class='section-title'>Clinical Summary</div>
-                <div class='summary-text'>" + cleanResp + R"(</div>
-            </div>
-
-        </div>
-        </body></html>
+        </body>
+        </html>
         )";
 
         res.set_content(html, "text/html");
