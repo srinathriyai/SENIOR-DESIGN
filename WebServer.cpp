@@ -1,5 +1,5 @@
 #include "WebServer.h"
-#include <string>
+#include <iostream>
 
 void startWebServer(const Vitals& current, const std::string& llmResponse) {
     httplib::Server svr;
@@ -10,13 +10,32 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
         <head>
             <title>Vitals Dashboard</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                       margin: 40px; background: #f5f5f7; }
-                .card { background: white; padding: 20px; border-radius: 20px;
-                        box-shadow: 0 8px 20px rgba(0,0,0,0.1); max-width: 600px; margin:auto; }
-                h2 { text-align:center; font-weight:700; }
-                .vital { font-size: 18px; margin-bottom: 12px; }
-                .summary { margin-top: 20px; font-size: 16px; white-space: pre-wrap; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    margin: 40px;
+                    background: #f5f5f7;
+                }
+                .card {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 20px;
+                    box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+                    max-width: 600px;
+                    margin: auto;
+                }
+                h2 {
+                    text-align: center;
+                    font-weight: 700;
+                }
+                .vital {
+                    font-size: 18px;
+                    margin-bottom: 12px;
+                }
+                .summary {
+                    margin-top: 20px;
+                    font-size: 16px;
+                    white-space: pre-wrap;
+                }
             </style>
         </head>
         <body>
@@ -25,11 +44,12 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
         )";
 
         // Insert vitals dynamically
-        html += "<div class='vital'>HR: " + std::to_string((int)current.HR) + " bpm</div>";
-        html += "<div class='vital'>SpO₂: " + std::to_string((int)current.SpO2) + " %</div>";
+        html += "<div class='vital'>HR: " + std::to_string(static_cast<int>(current.HR)) + " bpm</div>";
+        html += "<div class='vital'>SpO₂: " + std::to_string(static_cast<int>(current.SpO2)) + " %</div>";
         html += "<div class='vital'>Temp: " + std::to_string(current.Temp) + " °C</div>";
-        html += "<div class='vital'>Resp: " + std::to_string((int)current.Resp) + " rpm</div>";
-        html += "<div class='vital'>BP: " + std::to_string((int)current.BP_sys) + "/" + std::to_string((int)current.BP_dia) + " mmHg</div>";
+        html += "<div class='vital'>Resp: " + std::to_string(static_cast<int>(current.Resp)) + " rpm</div>";
+        html += "<div class='vital'>BP: " + std::to_string(static_cast<int>(current.BP_sys)) +
+                "/" + std::to_string(static_cast<int>(current.BP_dia)) + " mmHg</div>";
 
         // Add summary
         html += "<h3>Clinical Summary</h3>";
