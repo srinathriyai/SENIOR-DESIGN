@@ -38,17 +38,11 @@ Parameter meanings:
 We add each new piece to 'output' until the full response is complete. Return the number of bytes we used so libcurl knows it worked.
 */
 
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, string* output) {
-    // Calculate how many bytes we got in this chunk
-    size_t totalSize = size * nmemb;    
-    
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t totalSize = size * nmemb;
     std::string* s = static_cast<std::string*>(userp);
-  // Append the raw bytes to our output buffer (std::string)
-    // We cast 'contents' (void*) to (char*) to append the bytes
     s->append(static_cast<char*>(contents), totalSize);
-    
-  // Tell libcurl we successfully handled 'totalSize' bytes
-    return totalSize;                           
+    return totalSize;
 }
 
 // --------------------------------Step 4.5: JSON formatting??------------------------------------
