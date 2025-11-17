@@ -24,20 +24,6 @@
 
 using namespace std;
 
-/*
---------------------------------Step 1: Simulated (FOR NOW) input data from ESP32--------------------------------
-(In the real system, this comes from BLE or Wi-Fi)
-*/ 
-
-struct Vitals {
-    float HR;
-    float SpO2;
-    float Temp;
-    float Resp;
-    float BP_sys;
-    float BP_dia;
-};
-
 // --------------------------------Step 3: Build a structured text prompt for the LLM--------------------------------
 /*
 Purpose:
