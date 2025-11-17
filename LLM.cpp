@@ -179,6 +179,29 @@ std::string sendToLLM(const std::string& prompt) {
     return response;
 }
 
+// Extract the "content" field from llama.cpp JSON response
+std::string extractContent(const std::string& json) {
+    std::string key = "\"content\":\"";
+    size_t start = json.find(key);
+    if (start == std::string::npos) return json; // fallback
+
+    start += key.length();
+    size_t end = json.find("\"", start);
+    if (end == std::string::npos) return json;
+
+    std::string content = json.substr(start, end - start);
+
+    // Optional: replace escaped characters
+    while (content.find("\\n") != std::string::npos)
+        content.replace(content.find("\\n"), 2, "\n");
+
+    while (content.find("\\\"") != std::string::npos)
+        content.replace(content.find("\\\""), 2, "\"");
+
+    return content;
+}
+
+
 // --------------------------------Step 6: Main loop simulation------------------------------------
 
 int main() {
@@ -192,7 +215,10 @@ int main() {
     risk["BP"] = calc_BP_risk(current.BP_sys, current.BP_dia);
 
     std::string prompt = generatePrompt(current, risk);
-    std::string llmResponse = sendToLLM(prompt);
+
+    std::string raw = sendToLLM(prompt);
+    std::string llmResponse = extractContent(raw);
+
 
     // Terminal output (raw)
     std::cout << "===== Raw LLM Response =====\n" << llmResponse << "\n\n";
