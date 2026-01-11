@@ -1,0 +1,109 @@
+#include <Arduino.h>
+
+static const uint32_t BAUD = 115200;
+static const uint8_t SENSOR_PIN = A0;
+
+// Sampling
+static const uint16_t SAMPLE_MS = 20;     // 50 Hz sampling
+static const float FILTER_ALPHA = 0.10f;  // low-pass filter (0.05 smoother, 0.2 faster)
+
+// Baseline tracking (slowly follows drift)
+static const float BASELINE_ALPHA = 0.002f;  // smaller = slower drift tracking
+
+// Breath detection tuning (adjust if needed)
+static const int THRESH_ON  = 4;   // counts above baseline to start inhale
+static const int THRESH_OFF = 2;   // counts above baseline to end inhale (hysteresis)
+static const uint32_t REFRACTORY_MS = 1200; // ignore new breaths for 1.2s (prevents double counting)
+
+float filt = 0;
+float baseline = 0;
+
+bool inBreath = false;
+uint32_t lastBreathMs = 0;
+
+// For BPM averaging
+static const int MAX_INTERVALS = 6;
+uint32_t intervals[MAX_INTERVALS];
+int intervalCount = 0;
+
+float computeBPM() {
+  if (intervalCount == 0) return 0.0f;
+  uint64_t sum = 0;
+  for (int i = 0; i < intervalCount; i++) sum += intervals[i];
+  float avgIntervalMs = (float)sum / intervalCount;
+  if (avgIntervalMs <= 0) return 0.0f;
+  return 60000.0f / avgIntervalMs;
+}
+
+void pushInterval(uint32_t dt) {
+  if (intervalCount < MAX_INTERVALS) {
+    intervals[intervalCount++] = dt;
+  } else {
+    // shift left
+    for (int i = 1; i < MAX_INTERVALS; i++) intervals[i - 1] = intervals[i];
+    intervals[MAX_INTERVALS - 1] = dt;
+  }
+}
+
+void setup() {
+  Serial.begin(BAUD);
+  delay(500);
+  Serial.println("Respiration chest test starting...");
+  Serial.println("Tip: wear band on upper abdomen/chest, snug, sit still for 5–10s.");
+
+  int x0 = analogRead(SENSOR_PIN);
+  filt = x0;
+  baseline = x0;
+}
+
+void loop() {
+  int raw = analogRead(SENSOR_PIN);
+
+  // Low-pass filter
+  filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * raw;
+
+  // Baseline tracks slowly ONLY when not in a breath
+  if (!inBreath) {
+    baseline = (1.0f - BASELINE_ALPHA) * baseline + BASELINE_ALPHA * filt;
+  }
+
+  int delta = (int)roundf(filt - baseline);
+
+  uint32_t now = millis();
+
+  // Breath detection with hysteresis + refractory
+  if (!inBreath) {
+    if (delta >= THRESH_ON && (now - lastBreathMs) > REFRACTORY_MS) {
+      inBreath = true;
+
+      // Count a breath at inhale start
+      if (lastBreathMs != 0) {
+        uint32_t dt = now - lastBreathMs;
+        pushInterval(dt);
+      }
+      lastBreathMs = now;
+
+      Serial.println(">>> INHALE START");
+    }
+  } else {
+    // End breath when delta falls back down
+    if (delta <= THRESH_OFF) {
+      inBreath = false;
+      Serial.println("<<< EXHALE / REST");
+    }
+  }
+
+  // Debug print (you can comment this out later)
+  Serial.print("raw=");
+  Serial.print(raw);
+  Serial.print(" filt=");
+  Serial.print((int)roundf(filt));
+  Serial.print(" base=");
+  Serial.print((int)roundf(baseline));
+  Serial.print(" d=");
+  Serial.print(delta);
+  Serial.print(" BPM=");
+  Serial.println(computeBPM(), 1);
+
+  delay(SAMPLE_MS);
+}
