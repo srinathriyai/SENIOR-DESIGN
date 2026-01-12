@@ -1,4 +1,5 @@
-
+//I2C 4 channel mux testing code 
+//Gets addresses for sensors and confirms port connection
 
 #include <Wire.h>
 
