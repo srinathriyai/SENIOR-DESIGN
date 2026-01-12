@@ -1,7 +1,6 @@
 #include "Adafruit_MPRLS.h"
 #include "timerISR.h"
 #include "Highpass.h"
-#include "Lowpass.h"
 #include <Arduino.h>
 
 // =================================================================================================
@@ -34,15 +33,6 @@ unsigned char is_reading = 0;
 
 // Values
 float curr_pressure = 0;
-float curr_pressure_HP = 0;
-float prev_pressure_HP = 0;
-
-// Counters
-int counter_calibrate = 0;
-int counter_reading_delay = 0;
-
-// Calibration
-float baseline_pressure = 0;
 //=============================================================================
 
 // Periods
@@ -100,7 +90,6 @@ void setup() {
   pinMode(in2, OUTPUT); digitalWrite(in2, LOW); // ^
   pinMode(in3, OUTPUT); digitalWrite(in3, LOW); // MOTOR OFF
   pinMode(in4, OUTPUT); digitalWrite(in4, LOW); // ^
-  // pinMode(A5, INPUT);
 
   Serial.begin(115200);
 
@@ -156,28 +145,41 @@ void loop() {
   TimerFlag = 0;
 }
 
+//=============================================================================
 // Variables for sampling pressure
+//=============================================================================
+// Counters
+int counter_calibrate = 0;
+int counter_reading_delay = 0;
+
+// Calibration
+float baseline_pressure = 0;
+int baseline_samples = 3; // # of samples to take for the baseline average
+
+// Pressure Arrays
 const int pa_size = 130; // max # of samples to take
 int pa_index = 0;
 float pressure_array[pa_size];
 float pressure_array_HP[pa_size];
 
-int baseline_samples = 3; // # of samples to take for the baseline average
+// Values
 float prev_pressure = 0;
-float delta_pressure = 0;
-float hPa_to_mmHg = 0.75006;
+float curr_pressure_HP = 0;
+float prev_pressure_HP = 0;
 
+// Analysis
+float hPa_to_mmHg = 0.75006;
+float delta_pressure = 0;
 float curr_val = 0; // Variable for temporarily selecting values
 float max_HP = 0;
 int max_HP_index = 0;
-
 int systolic_index = 0;
 float systolic = 0;
 int diastolic_index = 0;
 float diastolic = 0;
-
 const float systolic_ratio = 0.85;
 const float diastolic_ratio = 0.55;
+//=============================================================================
 
 int tick_sample_pressure(int state) {
   // Create an array for tracking pressure
@@ -272,7 +274,7 @@ int tick_sample_pressure(int state) {
         ++counter_reading_delay;
       }
       if(is_reading == 1 && (counter_reading_delay >= 2000/sample_pressure_PERIOD)) { // Only start reading after 3 seconds (from experimentation)
-        Serial.print("Reading \n");
+        // Serial.print("Reading \n");
         if ((curr_pressure_HP - prev_pressure_HP) > 0.05) {
           pressure_array_HP[pa_index] = curr_pressure_HP;
           pressure_array[pa_index] = curr_pressure;
@@ -281,8 +283,8 @@ int tick_sample_pressure(int state) {
         prev_pressure_HP = curr_pressure_HP;
       }
       if((curr_pressure <= 50 && is_reading == 1) | (pa_index == (pa_size - 1))) { // Finish measuring if pressure array is full or current pressure is <= 50
-        Serial.print("Stopping \n");
-        Serial.println(pa_index);
+        // Serial.print("Stopping \n");
+        // Serial.println(pa_index);
         is_releasing = 1;
         is_activated = 0;
       }
@@ -318,11 +320,11 @@ int tick_release_valve(int state) {
   switch(state) {
     case release_valve_CLOSED:
       digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
-      Serial.print("NOT RELEASING \n");
+      // Serial.print("NOT RELEASING \n");
       break;
     case release_valve_OPEN:
       digitalWrite(in1, LOW); digitalWrite(in2, LOW); // RELEASING
-      Serial.print("RELEASING \n");
+      // Serial.print("RELEASING \n");
       break;
   }
 
