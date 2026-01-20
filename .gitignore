@@ -1,0 +1,9 @@
+# Build artifacts
+*.exe
+*.obj
+
+# Runtime output
+llm_reports.txt
+
+# External/vendor
+external/
