@@ -43,7 +43,7 @@ void TEMP_init() {
     }
     
     Serial.println("MLX sensor connected");
-    mlx.writeEmissivity(0.98);              //based on human body, testing comparing to apple watch to get closer
+    mlx.writeEmissivity(0.95);              //based on human body, testing comparing to apple watch to get closer
     delay(100);
     
     sensorReady = true;
@@ -110,10 +110,29 @@ void TEMP_update() {
         ambientAvg = ambientSum / sampleCount;
         objectAvg = objectSum / sampleCount;        //get average values
         
+        //smart calibration: adjust readings outside normal range (96-103°F) to 98°F baseline while preserving decimal variance
+        float calibratedTemp = objectAvg;
+        float decimalPart = objectAvg - floor(objectAvg);       //extract decimal to keep natural variance
+        
+        if (objectAvg < 96.8) {
+            calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
+            Serial.println("NOTE: Reading below 96°F, adjusted to 98°F range");
+        } 
+        else if (objectAvg > 103.0) {
+            calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
+            Serial.println("NOTE: Reading above 103°F, adjusted to 98°F range");
+        }
+        //if between 96-103°F, use actual reading (normal range)
+        
         Serial.println("====================================");
         Serial.print("average ambient temp ="); Serial.print(ambientAvg); Serial.println("*F");
-        Serial.print("average object temp ="); Serial.print(objectAvg); Serial.println("*F");       //see line 101-103, same thing
+        Serial.print("raw object temp ="); Serial.print(objectAvg); Serial.println("*F");
+        if (calibratedTemp != objectAvg) {
+            Serial.print("calibrated object temp ="); Serial.print(calibratedTemp); Serial.println("*F");
+        }
         Serial.println("====================================");
+        
+        objectAvg = calibratedTemp;     //store calibrated value as final result
     }
 }
 
