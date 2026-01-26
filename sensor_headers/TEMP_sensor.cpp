@@ -2,7 +2,7 @@
 
 #define SAMPLE_TIME 15000
 #define SAMPLE_DELAY 500
-#define BUTTON_PIN 2        //button for debugging purposes, will change later
+#define BUTTON_PIN 7        //button for debugging purposes, will change later
 
 //ESP32-S3 Nano secondary I2C pins (separate from HR sensor)
 //------- MIGHT NEED TO CHANGE if using arduino brand, this is for one off amazon...
@@ -114,15 +114,25 @@ void TEMP_update() {
         float calibratedTemp = objectAvg;
         float decimalPart = objectAvg - floor(objectAvg);       //extract decimal to keep natural variance
         
-        if (objectAvg < 96.8) {
+
+        //if between 96-103°F, use actual reading (normal range)
+        //if super large values flag sensor needs reset
+        if (objectAvg < 80.0) {
+            Serial.println("NOTE: Reading abnormal. RESET device and test again.");
+        } 
+        else if (objectAvg < 96.8){
             calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
             Serial.println("NOTE: Reading below 96°F, adjusted to 98°F range");
         } 
-        else if (objectAvg > 103.0) {
+        else if(objectAvg > 103.0){
             calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
             Serial.println("NOTE: Reading above 103°F, adjusted to 98°F range");
         }
-        //if between 96-103°F, use actual reading (normal range)
+        else if(objectAvg > 130.0){
+            Serial.println("NOTE: Reading abnormal. RESET device and test again.");
+        }
+        
+
         
         Serial.println("====================================");
         Serial.print("average ambient temp ="); Serial.print(ambientAvg); Serial.println("*F");
