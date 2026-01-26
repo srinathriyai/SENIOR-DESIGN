@@ -3,29 +3,26 @@
 #include "TEMP_Sensor.h"
 #include "BP.h"
 
-//tracking simultaneous trigger
-bool lastD2State = HIGH;
+// Button tracking for HR/TEMP system
+bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
+
+// BP sensor status
+bool bpSensorReady = false;
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
     Serial.println("SETUP START");
 
-    HR_init();
-    TEMP_init();
-    
-    Serial.println("\n=== READY ===");
-    Serial.println("Press D2 to start BOTH measurements simultaneously");
-    Serial.println("OR press D4 for HR only");
-    
     //=============================================================================
     // BP SETUP
     //=============================================================================
-    // Initialization (ESP 32)
+    
+    //initialization
     pinMode(in1, OUTPUT); digitalWrite(in1, LOW); // RELEASE ON
     pinMode(in2, OUTPUT); digitalWrite(in2, LOW); // ^
     pinMode(in3, OUTPUT); digitalWrite(in3, LOW); // MOTOR OFF
-    pinMode(in4, OUTPUT); digitalWrite(in4, LOW); // ^
+    pinMode(in4, OUTPUT); digitalWrite(in4, LOW); // ^ 
 
     unsigned char i = 0;
     tasks[i].elapsedTime = sample_pressure_PERIOD;
@@ -50,52 +47,60 @@ void setup() {
 
     Serial.flush();
     
-    if (!mpr.begin()) { // Calls mpr.begin() (see Adafruit_MPRLS::begin) and will output a 0 if it could not begin the sensor
-        Serial.print("Pressure sensor check failed\n");
+    // BP sensor initialization (non-blocking)
+    if (!mpr.begin()) {
+        Serial.print("Pressure sensor check failed - BP disabled\n");
         Serial.flush();
-        while(1) {
-        Serial.print("Stopped, Restart\n");
-        Serial.flush();
-        delay(1000);
-        }
+        bpSensorReady = false;
     } else {
         Serial.print("Pressure sensor check passed\n");
         Serial.flush();
+        bpSensorReady = true;
     }
     //=============================================================================
+    
+    //initialize HR and TEMP after BP (to avoid I2C conflicts)
+    delay(200);  
+    HR_init();
+    TEMP_init();
+    
+    Serial.println("\n=== READY ===");
+    Serial.println("Press D6 to start HR+TEMP measurements");
+    Serial.println("OR press D4 for HR only");
+    Serial.println("BP uses A0 button (from BP.h code)");
+    Serial.println("\nNOTE: D2 is used by BP system (in4), don't use for buttons!");
 }
 
 void loop() {
     //=============================================================================
-    // BP TASKS
+    // BP TASKS - Run continuously if sensor is ready
     //=============================================================================
-    currentmillis = millis();
-    for (unsigned int i = 0; i < NUM_TASKS; i++) {
-        if (currentmillis - tasks[i].elapsedTime >= tasks[i].period) {
-        tasks[i].state = tasks[i].TickFct(tasks[i].state); // Runs the tick and then sets the output state to the new state.
-        tasks[i].elapsedTime = currentmillis;
+    if(bpSensorReady){
+        currentmillis = millis();
+        for (unsigned int i = 0; i < NUM_TASKS; i++) {
+            if (currentmillis - tasks[i].elapsedTime >= tasks[i].period) {
+                tasks[i].state = tasks[i].TickFct(tasks[i].state);
+                tasks[i].elapsedTime = currentmillis;
+            }
         }
     }
-    //=============================================================================
-    
-    bool currentD2 = digitalRead(2);    //checking button on D2 for press while another button is pressed
-    if(lastD2State == HIGH && currentD2 == LOW){
+
+    //HR sensor start loop based on button, will be changed to call from LLM or something
+    bool currentD6 = digitalRead(7);
+    if (lastD6State == HIGH && currentD6 == LOW) {
         delay(50);
         
         Serial.println("\n======================================");
-        Serial.println("D2 PRESSED - STARTING BOTH SENSORS");
+        Serial.println("D6 PRESSED - STARTING HR+TEMP SENSORS");
         Serial.println("======================================");
         
-        TEMP_startMeasurement();    //start temp sampling
-        HR_startMeasurement();     //start HR/spO2 sampling
-        
-  
-        //debugging 
-       // Serial.println("Now press D4 button to start HR measurement");
+        TEMP_startMeasurement();
+        HR_startMeasurement();
     }
-    lastD2State = currentD2;        //set to last state
+    lastD6State = currentD6;
+    //=============================================================================
     
-    //update both sensors
+    // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
     HR_update();
 
