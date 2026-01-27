@@ -3,9 +3,6 @@
 #include <iostream>
 #include <map>
 
-<<<<<<< Updated upstream
-// ---- Live vitals source (set by pc_main.cpp) ----
-=======
 // ============================================================================
 // WebServer.cpp ((((UPDATED 1/27/26 3:30PM))))
 //
@@ -35,7 +32,6 @@
 // ---- Live vitals source (set by pc_main.cpp) ----
 // If pc_main.cpp calls setLiveVitalsSource(&liveVitals),
 // the server will always serve the latest values from that struct.
->>>>>>> Stashed changes
 static const Vitals* g_liveVitals = nullptr;
 
 void setLiveVitalsSource(const Vitals* live) {
@@ -44,10 +40,7 @@ void setLiveVitalsSource(const Vitals* live) {
 
 // -------------------------------
 // Convert risk score (0–3) → color hex code
-<<<<<<< Updated upstream
-=======
 // Used for UI badges.
->>>>>>> Stashed changes
 // -------------------------------
 std::string riskColor(int risk) {
     switch (risk) {
@@ -59,13 +52,10 @@ std::string riskColor(int risk) {
     }
 }
 
-<<<<<<< Updated upstream
-=======
 // -------------------------------
 // Escape text so it can be safely injected into HTML (prevents broken markup)
 // Used for initial LLM response that is rendered in the page.
 // -------------------------------
->>>>>>> Stashed changes
 static std::string htmlEscape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -93,15 +83,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     // =========================================================
     // ROUTE: GET /api/vitals
     // Returns latest vitals + risk as JSON (for live UI updates)
-<<<<<<< Updated upstream
-    // BRIDGE BTW BACKEND AND FRONT END
-    // =========================================================
-    svr.Get("/api/vitals", [&](const httplib::Request&, httplib::Response& res) {
-
-        // reads whatever values are currently in live.
-        const Vitals& v = (g_liveVitals ? *g_liveVitals : current);
-
-=======
     //
     // Frontend calls this once per second (1Hz) to:
     // - update the displayed vitals
@@ -113,7 +94,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
         const Vitals& v = (g_liveVitals ? *g_liveVitals : current);
 
         // Risk scoring functions come from Risk_Assessment.h/.cpp
->>>>>>> Stashed changes
         std::map<std::string, int> risk = {
             {"HR",   calc_HR_risk(v.HR)},
             {"SpO2", calc_SpO2_risk(v.SpO2)},
@@ -122,11 +102,8 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
             {"BP",   calc_BP_risk(v.BP_sys, v.BP_dia)}
         };
 
-<<<<<<< Updated upstream
-=======
         // Build a simple JSON object manually
         // (No JSON library needed for this size.)
->>>>>>> Stashed changes
         std::string json = "{";
         json += "\"hr\":" + std::to_string(v.HR) + ",";
         json += "\"spo2\":" + std::to_string(v.SpO2) + ",";
@@ -149,11 +126,8 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     // ROUTE: GET /api/summary
     // Generates a NEW clinical summary by calling llama-server.
     // Returns plain text.
-<<<<<<< Updated upstream
-=======
     //
     // Frontend calls this once on load (or you can add a refresh button later).
->>>>>>> Stashed changes
     // =========================================================
     svr.Get("/api/summary", [&](const httplib::Request&, httplib::Response& res) {
 
@@ -180,11 +154,8 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     // =============================
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
 
-<<<<<<< Updated upstream
-=======
         // Initial risk values used for first render.
         // After page loads, the frontend will poll /api/vitals and update live.
->>>>>>> Stashed changes
         std::map<std::string, int> risk = {
             {"HR",   calc_HR_risk(current.HR)},
             {"SpO2", calc_SpO2_risk(current.SpO2)},
@@ -193,15 +164,12 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
             {"BP",   calc_BP_risk(current.BP_sys, current.BP_dia)}
         };
 
-<<<<<<< Updated upstream
-=======
         // =====================================================================
         // Build HTML as a single string.
         // NOTE: We mix:
         // - a big raw-string (R"HTML(... )HTML") for most HTML/CSS/JS
         // - plus small string concatenations to inject initial values
         // =====================================================================
->>>>>>> Stashed changes
         std::string html = R"HTML(
         <html>
         <head>
@@ -305,10 +273,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     border: 1px solid rgba(0,0,0,0.08);
                     border-radius: 14px;
                     padding: 12px 14px;
-<<<<<<< Updated upstream
-                    cursor: pointer;
-=======
->>>>>>> Stashed changes
                 }
 
                 .container {
@@ -357,8 +321,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                 .summary-card { margin-top: 30px; }
                 .summary-content { white-space: pre-wrap; margin-top: 10px; line-height: 1.5; }
-<<<<<<< Updated upstream
-=======
 
                 /* Small button style for patient cards + session controls */
                 .mini-btn {
@@ -382,7 +344,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     border: 1px solid rgba(0,0,0,0.12);
                     box-sizing: border-box;
                 }
->>>>>>> Stashed changes
             </style>
         </head>
 
@@ -399,11 +360,7 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     </div>
 
                     <div style="margin-top:16px;" class="muted">
-<<<<<<< Updated upstream
-                        Select a patient, then view live vitals.
-=======
                         Set patient info, select active patient, then start a 3-minute session.
->>>>>>> Stashed changes
                     </div>
                 </aside>
 
@@ -413,19 +370,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         <h1 id="pageTitle" class="page-title">Patients</h1>
                     </div>
 
-<<<<<<< Updated upstream
-                    <section id="pagePatients" class="page active">
-                        <div class="card">
-                            <div class="vital-name">Select a patient</div>
-                            <div class="list">
-                                <div class="list-item" onclick="selectPatient('Patient A (001)')">
-                                    <div><b>Patient A</b></div>
-                                    <div class="muted">ID: 001 • Last update: just now</div>
-                                </div>
-                                <div class="list-item" onclick="selectPatient('Patient B (002)')">
-                                    <div><b>Patient B</b></div>
-                                    <div class="muted">ID: 002 • Last update: 5 min ago</div>
-=======
                     <!-- ==========================================================
                          PAGE: PATIENTS
                          - Two profile slots (A + B)
@@ -499,14 +443,11 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 <div style="display:flex; gap:10px; margin-top:12px;">
                                     <button class="mini-btn" onclick="savePatient()">Save</button>
                                     <button class="mini-btn" onclick="cancelEdit()">Cancel</button>
->>>>>>> Stashed changes
                                 </div>
                             </div>
                         </div>
                     </section>
 
-<<<<<<< Updated upstream
-=======
                     <!-- ==========================================================
                          PAGE: LIVE
                          - Shows which patient is active
@@ -516,14 +457,10 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                            SAVES to Reports tab (not auto-download)
                          - Displays live vitals + risks
                          ========================================================== -->
->>>>>>> Stashed changes
                     <section id="pageLive" class="page">
                         <div class="container">
                             <h2>Live Vitals</h2>
                             <div class="muted" style="margin-bottom:12px;">
-<<<<<<< Updated upstream
-                                Selected patient: <span id="selectedPatientLabel">None</span>
-=======
                                 Active patient: <span id="selectedPatientLabel">None</span>
                             </div>
 
@@ -541,19 +478,15 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                     <div class="muted">Time left: <span id="timerLabel">3:00</span></div>
                                     <div class="muted" id="sessionStatus"></div>
                                 </div>
->>>>>>> Stashed changes
                             </div>
 
                             <div class="grid">
         )HTML";
-<<<<<<< Updated upstream
-=======
 
         // ==========================================================
         // Initial cards rendered using "current" vitals.
         // Frontend will overwrite these values after first /api/vitals fetch.
         // ==========================================================
->>>>>>> Stashed changes
 
         // HEART RATE CARD
         html += "<div class='card'><div class='vital-name'>Heart Rate</div>";
@@ -582,13 +515,9 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
         html += "<div id='bpRisk' class='badge' style='background:" + riskColor(risk["BP"]) + "'>Risk "
              + std::to_string(risk["BP"]) + "</div></div>";
 
-<<<<<<< Updated upstream
-        // Summary section + JS
-=======
         // ==========================================================
         // Summary section + JS
         // ==========================================================
->>>>>>> Stashed changes
         html += R"HTML(
                             </div>
 
@@ -597,11 +526,7 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 <div id="summaryText" class="summary-content">
         )HTML";
 
-<<<<<<< Updated upstream
-        // Initial summary shown immediately
-=======
         // Initial summary shown immediately (passed into startWebServer)
->>>>>>> Stashed changes
         html += htmlEscape(llmResponse);
 
         html += R"HTML(
@@ -611,22 +536,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         </div>
                     </section>
 
-<<<<<<< Updated upstream
-                    <section id="pageReports" class="page">
-                        <div class="card">
-                            <div class="vital-name">Reports</div>
-                            <div class="muted">Later: list saved summaries / exports / risk logs</div>
-
-                            <div class="list">
-                                <div class="list-item">
-                                    <b>Report 2026-01-22</b>
-                                    <div class="muted">Summary + risk snapshot</div>
-                                </div>
-                                <div class="list-item">
-                                    <b>Report 2026-01-20</b>
-                                    <div class="muted">Vitals trend + notes</div>
-                                </div>
-=======
                     <!-- ==========================================================
                          PAGE: REPORTS
                          - Lists saved CSV exports (stored in localStorage)
@@ -641,23 +550,16 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                             <div style="margin-top:12px;">
                                 <button class="mini-btn" onclick="clearAllReports()">Clear all</button>
->>>>>>> Stashed changes
                             </div>
                         </div>
                     </section>
 
                     <script>
-<<<<<<< Updated upstream
-                        const historyStack = [];
-                        let currentPage = 'patients';
-                        let selectedPatient = null;
-=======
                         // ==========================================================
                         // Simple navigation within this single HTML page
                         // ==========================================================
                         const historyStack = [];
                         let currentPage = 'patients';
->>>>>>> Stashed changes
 
                         function setActiveNav(page) {
                             document.getElementById('navPatients').classList.toggle('active', page === 'patients');
@@ -679,14 +581,11 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             currentPage = page;
                             setActiveNav(page);
                             setPageTitle(page);
-<<<<<<< Updated upstream
-=======
 
                             // If user navigates to Reports, refresh the list (safe to call anytime)
                             if (page === 'reports') {
                                 renderReports();
                             }
->>>>>>> Stashed changes
                         }
 
                         function go(page) {
@@ -701,11 +600,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             showPage(prev);
                         }
 
-<<<<<<< Updated upstream
-                        function selectPatient(name) {
-                            selectedPatient = name;
-                            document.getElementById('selectedPatientLabel').textContent = name;
-=======
                         // ==========================================================
                         // Patient Profiles (max 2)
                         //
@@ -801,13 +695,10 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             const label = `${id === 0 ? "Patient A" : "Patient B"}: ${p.name}`;
                             document.getElementById('selectedPatientLabel').textContent = label;
 
->>>>>>> Stashed changes
                             historyStack.push(currentPage);
                             showPage('live');
                         }
 
-<<<<<<< Updated upstream
-=======
                         function lockPatientControls(locked) {
                             // Disable editing/selecting while session runs
                             document.getElementById("btnEditA").disabled = locked;
@@ -916,7 +807,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         // ==========================================================
                         // Risk badge color for JS (matches C++ riskColor)
                         // ==========================================================
->>>>>>> Stashed changes
                         function riskColorJS(r) {
                             if (r === 0) return "#2ecc71";
                             if (r === 1) return "#f1c40f";
@@ -924,33 +814,24 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             return "#e74c3c";
                         }
 
-<<<<<<< Updated upstream
-=======
                         // ==========================================================
                         // Live vitals polling (1Hz)
                         // - updates UI every second
                         // - session logger also uses /api/vitals snapshots
                         // ==========================================================
->>>>>>> Stashed changes
                         async function refreshVitals() {
                             try {
                                 const r = await fetch('/api/vitals');
                                 const v = await r.json();
 
-<<<<<<< Updated upstream
-=======
                                 // Update main vital readouts
->>>>>>> Stashed changes
                                 document.getElementById('hrValue').textContent   = Math.round(v.hr) + " bpm";
                                 document.getElementById('spo2Value').textContent = Math.round(v.spo2) + " %";
                                 document.getElementById('tempValue').textContent = Number(v.temp).toFixed(1) + " °C";
                                 document.getElementById('respValue').textContent = Math.round(v.resp) + " rpm";
                                 document.getElementById('bpValue').textContent   = Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg";
 
-<<<<<<< Updated upstream
-=======
                                 // Update risk badges
->>>>>>> Stashed changes
                                 const hrR = document.getElementById('hrRisk');
                                 const spR = document.getElementById('spo2Risk');
                                 const tR  = document.getElementById('tempRisk');
@@ -963,12 +844,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 rrR.textContent = "Risk " + v.risk_resp;  rrR.style.background = riskColorJS(v.risk_resp);
                                 bpR.textContent = "Risk " + v.risk_bp;    bpR.style.background = riskColorJS(v.risk_bp);
                             } catch (e) {
-<<<<<<< Updated upstream
-                                // ignore for now
-                            }
-                        }
-
-=======
                                 // If server isn't ready or fetch fails, ignore for now.
                             }
                         }
@@ -976,7 +851,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         // ==========================================================
                         // Clinical summary refresh (calls /api/summary once)
                         // ==========================================================
->>>>>>> Stashed changes
                         async function refreshSummary() {
                             const el = document.getElementById('summaryText');
                             const status = document.getElementById('summaryStatus');
@@ -994,14 +868,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             }
                         }
 
-<<<<<<< Updated upstream
-                        window.addEventListener('load', () => {
-                            // start live vitals polling
-                            refreshVitals();
-                            setInterval(refreshVitals, 1000);
-
-                            // generate summary on load (background)
-=======
                         // ==========================================================
                         // 3-minute Vitals Session (1 Hz logging)
                         //
@@ -1192,7 +1058,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             setInterval(refreshVitals, 1000);
 
                             // Generate summary in background on load
->>>>>>> Stashed changes
                             setTimeout(refreshSummary, 100);
                         });
                     </script>
