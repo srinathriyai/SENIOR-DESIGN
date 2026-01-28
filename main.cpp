@@ -7,7 +7,7 @@
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 
 // BP sensor status
-bool bpSensorReady = false;
+// (Moved flag to BP.h)
 
 void setup() {
     Serial.begin(115200);
@@ -107,7 +107,7 @@ void loop() {
     delay(10);
 
     // Sending to LLM
-    if (is_BP_ready) {
+    if (bpSensorReady) {
         live.BP_sys = systolic; 
         live.BP_dia = diastolic;
     }
