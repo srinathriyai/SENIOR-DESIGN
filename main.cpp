@@ -7,7 +7,7 @@
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 
 // BP sensor status
-// (Moved flag to BP.h)
+bool Pressure_Sens_Check = false;
 
 void setup() {
     Serial.begin(115200);
@@ -51,11 +51,11 @@ void setup() {
     if (!mpr.begin()) {
         Serial.print("Pressure sensor check failed - BP disabled\n");
         Serial.flush();
-        bpSensorReady = false;
+        Pressure_Sens_Check = false;
     } else {
         Serial.print("Pressure sensor check passed\n");
         Serial.flush();
-        bpSensorReady = true;
+        Pressure_Sens_Check = true;
     }
     //=============================================================================
     
@@ -75,7 +75,7 @@ void loop() {
     //=============================================================================
     // BP TASKS - Run continuously if sensor is ready
     //=============================================================================
-    if(bpSensorReady){
+    if(Pressure_Sens_Check){
         currentmillis = millis();
         for (unsigned int i = 0; i < NUM_TASKS; i++) {
             if (currentmillis - tasks[i].elapsedTime >= tasks[i].period) {
