@@ -5,7 +5,6 @@
 // =================================================================================================
 // FOR CIRCUIT DIAGRAM REFER TO: FINAL CIRCUIT DIAGRAM
 // =================================================================================================
-
 // Filter declarations
 HighPass<1> hp1(1.33, 10, true);
 
@@ -13,11 +12,11 @@ HighPass<1> hp1(1.33, 10, true);
 // Task communication 
 //=============================================================================
 // Flags
-unsigned char is_activated = 0;
-unsigned char is_pumping = 0;
-unsigned char is_releasing = 0;
-unsigned char is_reading = 0;
-unsigned char is_BP_ready = 0;
+bool is_activated = 0;
+bool is_pumping = 0;
+bool is_releasing = 0;
+bool is_reading = 0;
+bool bpSensorReady = 0;
 
 // Values
 float curr_pressure = 0;
@@ -175,7 +174,7 @@ int tick_sample_pressure(int state) {
         Serial.print("Sys: "); Serial.println(systolic);
         Serial.print("Dia: "); Serial.println(diastolic);
 
-        is_BP_ready = 1;
+        bpSensorReady = 1;
         state = sample_pressure_OFF;
       }
       break;
