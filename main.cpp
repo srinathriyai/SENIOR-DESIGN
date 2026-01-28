@@ -84,6 +84,7 @@ void loop() {
             }
         }
     }
+    //=============================================================================
 
     //HR sensor start loop based on button, will be changed to call from LLM or something
     bool currentD6 = digitalRead(7);
@@ -98,11 +99,16 @@ void loop() {
         HR_startMeasurement();
     }
     lastD6State = currentD6;
-    //=============================================================================
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
     HR_update();
 
     delay(10);
+
+    // Sending to LLM
+    if (is_BP_ready) {
+        live.BP_sys = systolic; 
+        live.BP_dia = diastolic;
+    }
 }
