@@ -7,7 +7,7 @@
 // =================================================================================================
 
 // Filter declarations
-HighPass<1> hp1(1.33, 10, false);
+HighPass<1> hp1(1.33, 10, true);
 
 //=============================================================================
 // Task communication 
@@ -17,6 +17,7 @@ unsigned char is_activated = 0;
 unsigned char is_pumping = 0;
 unsigned char is_releasing = 0;
 unsigned char is_reading = 0;
+unsigned char is_BP_ready = 0;
 
 // Values
 float curr_pressure = 0;
@@ -48,11 +49,11 @@ unsigned long currentmillis = 0;
 #define EOC_PIN -1
 Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
 
-// Pump & valve declarations
-int in1 = 5; // *TEMP* ONLY FOR THE ARDUINO UNO CONFIG
-int in2 = 4; // ^
-int in3 = 3; // ^
-int in4 = 2; // ^
+// Pump & valve pin declarations
+int in1 = 5;
+int in2 = 4;
+int in3 = 3;
+int in4 = 2;
 
 // State enumerations
 enum sample_pressure{sample_pressure_INIT, sample_pressure_CALIBRATE, sample_pressure_ON, sample_pressure_OFF};
@@ -80,7 +81,7 @@ float baseline_pressure = 0;
 int baseline_samples = 3; // # of samples to take for the baseline average
 
 // Pressure Arrays
-const int pa_size = 130; // max # of samples to take
+const int pa_size = 1200; // max # of samples to take
 int pa_index = 0;
 float pressure_array[pa_size];
 float pressure_array_HP[pa_size];
@@ -88,7 +89,6 @@ float pressure_array_HP[pa_size];
 // Values
 float prev_pressure = 0;
 float curr_pressure_HP = 0;
-float prev_pressure_HP = 0;
 
 // Analysis
 const float hPa_to_mmHg = 0.75006;
@@ -100,8 +100,8 @@ int systolic_index = 0;
 float systolic = 0;
 int diastolic_index = 0;
 float diastolic = 0;
-const float systolic_ratio = 0.85;
-const float diastolic_ratio = 0.55;
+const float systolic_ratio = 0.55;
+const float diastolic_ratio = 0.85;
 //=============================================================================
 
 int tick_sample_pressure(int state) {
@@ -117,32 +117,39 @@ int tick_sample_pressure(int state) {
     case sample_pressure_CALIBRATE:
       if (counter_calibrate == baseline_samples) {
         baseline_pressure = baseline_pressure / baseline_samples;
-        // Serial.print("Baseline Pressure: "); Serial.println(baseline_pressure);
+        Serial.print("Baseline Pressure: "); Serial.println(baseline_pressure);
         is_pumping = 1; // TEMP 0
         state = sample_pressure_ON;
       }
       break;
     case sample_pressure_ON:
       if(is_activated == 0) { // When completed measurement
-        for(int i = 0; i <= pa_index; ++i) {
-          Serial.print(pressure_array[i]); Serial.print(", ");
-        }
-        Serial.print("\n");
-        for(int i = 0; i <= pa_index; ++i) {
-          Serial.print(pressure_array_HP[i]); Serial.print(", ");
-        }
-        for(int i = 0; i <= pa_index; ++i) {
-          curr_val = pressure_array_HP[i];
-          if(curr_val > max_HP) {
-            max_HP = curr_val;
-            max_HP_index = i;
-          }
-        }
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   Serial.print(pressure_array[i]); Serial.print(", ");
+        // }
+        // Serial.print("\n");
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   Serial.print(pressure_array_HP[i]); Serial.print(", ");
+        // }
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   curr_val = pressure_array_HP[i];
+        //   if(curr_val > max_HP) {
+        //     max_HP = curr_val;
+        //     max_HP_index = i;
+        //   }
+        // }
+        // Serial.print("\n");
 
         // Systolic 
         for(int i = 0; i < max_HP_index; ++i) { // Inclusive 0 to exclusive max_HP_index
           if(abs((pressure_array_HP[i] - (max_HP * systolic_ratio))) < abs((pressure_array_HP[systolic_index] - (max_HP * systolic_ratio)))) { // Choose the closest HP to the sys ratio value
+            // Serial.print("Picked "); Serial.print(i); Serial.print(" because ");  Serial.print(abs((pressure_array_HP[i] - (max_HP * systolic_ratio)))); Serial.print(" is less than "); Serial.println(abs((pressure_array_HP[systolic_index] - (max_HP * systolic_ratio))));
             systolic_index = i;
+          }
+
+          // Changes obtained from experimentation:
+          if(abs((pressure_array_HP[i] - (max_HP * systolic_ratio))) <= 0.05) { // Stop searching for the systolic index if the current index's value is within threshold
+            break;
           }
         }
         systolic = pressure_array[systolic_index];
@@ -155,18 +162,38 @@ int tick_sample_pressure(int state) {
           }
         }
         diastolic = pressure_array[diastolic_index];
-        state = sample_pressure_OFF;
+
+        Serial.print("Max Val: "); Serial.println(max_HP);
+        Serial.print("Max Index: "); Serial.println(max_HP_index);
+
+        Serial.print("Systolic Val: "); Serial.println(pressure_array_HP[systolic_index]);
+        Serial.print("Systolic Index: "); Serial.println(systolic_index);
+
+        Serial.print("Diastolic Val: "); Serial.println(pressure_array_HP[diastolic_index]);
+        Serial.print("Diastolic Index: "); Serial.println(diastolic_index);
+
         Serial.print("Sys: "); Serial.println(systolic);
         Serial.print("Dia: "); Serial.println(diastolic);
+
+        is_BP_ready = 1;
+        state = sample_pressure_OFF;
       }
       break;
     case sample_pressure_OFF:
       if(is_activated == 1) {
+        // Flags
         is_releasing = 0;
-        pa_index = 0; // TEMP 99
+        is_reading = 0;
+
+        // Counters
         counter_calibrate = 0;
+
+        // Analysis
+        pa_index = 0;
         baseline_pressure = 0;
-        is_reading = 0; // TEMP 1
+        systolic_index = 0;
+        diastolic_index = 0;
+
         state = sample_pressure_CALIBRATE;
       }
       break;
@@ -183,29 +210,39 @@ int tick_sample_pressure(int state) {
       curr_pressure = (mpr.readPressure() * hPa_to_mmHg) - baseline_pressure; // Using a set value for atmopsheric pressure from testing for now
       delta_pressure = curr_pressure - prev_pressure;
 
-      // Serial.print(prev_pressure); Serial.flush(); Serial.print("\n"); Serial.flush();
-      // Serial.print(curr_pressure); Serial.flush(); Serial.print("\n"); Serial.flush();
-      curr_pressure_HP = hp1.filt(curr_pressure);
-      //Serial.print(delta_pressure); Serial.flush(); Serial.print("\n"); Serial.flush();
+      // Serial.println(prev_pressure); 
+      // Serial.println(curr_pressure);
+      //Serial.println(delta_pressure);
+      // curr_pressure_HP = hp1.filt(curr_pressure);
 
 
-      if(curr_pressure >= 170) { // Check if pressure is at 180 mmHg
+      if(curr_pressure >= 180) { // Check if pressure is at 180 mmHg
         is_pumping = 0; // <- *TEMP* INFLATE TO 180 MMHG AND THEN DEFLATE
         is_reading = 1;
       }
       if(is_reading == 1) { // For 1 seconds
         ++counter_reading_delay;
       }
-      if(is_reading == 1 && (counter_reading_delay >= 2000/sample_pressure_PERIOD)) { // Only start reading after 3 seconds (from experimentation)
+      if(is_reading == 1) {
         // Serial.print("Reading \n");
-        if ((curr_pressure_HP - prev_pressure_HP) > 0.05) {
-          pressure_array_HP[pa_index] = curr_pressure_HP;
-          pressure_array[pa_index] = curr_pressure;
-          pa_index = pa_index + 1;
+        // Changes obtained from experimentation:
+        // Only take the value if it's within the expected threshold (threshold obtained through experimentation) Currently: [-0.25 to 2]
+        if(curr_pressure_HP < 0) {
+          if(curr_pressure_HP > -0.25){
+            curr_pressure_HP = curr_pressure_HP * -1;
+            pressure_array_HP[pa_index] = curr_pressure_HP;
+            pressure_array[pa_index] = curr_pressure;
+            pa_index = pa_index + 1;
+          }
+        } else {
+          if(curr_pressure_HP < 2) {
+            pressure_array_HP[pa_index] = curr_pressure_HP;
+            pressure_array[pa_index] = curr_pressure;
+            pa_index = pa_index + 1;
+          }
         }
-        prev_pressure_HP = curr_pressure_HP;
       }
-      if((curr_pressure <= 50 && is_reading == 1) | (pa_index == (pa_size - 1))) { // Finish measuring if pressure array is full or current pressure is <= 50
+      if((curr_pressure <= 60 && is_reading == 1) | (pa_index == (pa_size - 1))) { // Finish measuring if pressure array is full or current pressure is <= 60
         // Serial.print("Stopping \n");
         // Serial.println(pa_index);
         is_releasing = 1;
@@ -213,7 +250,7 @@ int tick_sample_pressure(int state) {
       }
       break;
     case sample_pressure_OFF:
-      //Serial.print("NOT SAMPLING ");
+      // Serial.print("NOT SAMPLING ");
       break;
   }
 
@@ -296,6 +333,7 @@ int tick_start_button(int state) {
   switch(state) {
     case start_button_INIT:
       state = start_button_ON;
+      delay(1000);
       break;
     case start_button_ON:
       if (analogRead(A0) > 1000) {
