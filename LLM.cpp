@@ -204,27 +204,7 @@ std::string extractContent(const std::string& json) {
 
 // --------------------------------Step 6: Main loop simulation------------------------------------
 
-int main() {
-    Vitals current = {110, 92, 38.2, 22, 128, 86};
-
-    std::map<std::string, int> risk;
-    risk["HR"] = calc_HR_risk(current.HR);
-    risk["SpO2"] = calc_SpO2_risk(current.SpO2);
-    risk["Temp"] = calc_Temp_risk(current.Temp);
-    risk["Resp"] = calc_Resp_risk(current.Resp);
-    risk["BP"] = calc_BP_risk(current.BP_sys, current.BP_dia);
-
-    std::string prompt = generatePrompt(current, risk);
-
-    std::string raw = sendToLLM(prompt);
-    std::string llmResponse = extractContent(raw);
-
-
-    // Terminal output (raw)
-    std::cout << "===== Raw LLM Response =====\n" << llmResponse << "\n\n";
-
-    // Launch the dashboard
-    startWebServer(current, llmResponse);
-
+int llm_test_main() {
     return 0;
 }
+
