@@ -1,33 +1,29 @@
 #include "WebServer.h"          // startWebServer() + Vitals struct + risk funcs
-#include "LLM.h"                // sendToLLM(), generatePrompt(), extractContent()
+#include "LLM.h"                // sendToLLM(), extractContent()
 #include <iostream>
 #include <map>
+#include <string>
+#include <sstream>
+#include <cctype>
+#include <cmath>
 
 // ============================================================================
-// WebServer.cpp ((((UPDATED 1/31/26 3:30PM))))
+// WebServer.cpp (Clinical Diagnosis AFTER 3-minute session)
 //
 // What this file does:
 // 1) Hosts a local web dashboard at: http://localhost:8000
 // 2) Exposes API endpoints the dashboard uses:
-//    - GET /api/vitals  -> latest vitals + risk levels (JSON)
-//    - GET /api/summary -> generates a NEW LLM clinical summary (plain text)
-// 3) Serves a single-page dashboard UI from C++ (HTML + JS embedded as a string)
+//    - GET  /api/vitals     -> latest vitals + risk levels (JSON) [polled at 1 Hz]
+//    - POST /api/diagnosis  -> generate ONE diagnosis from averaged session data
+// 3) Serves a single-page dashboard UI from C++ (HTML + JS embedded)
 //
-// Features in this version:
-// - Two patient profiles (A/B): name, gender, age (stored in browser localStorage)
-// - One active patient at a time (prevents mixing)
-// - "Start Vitals (3:00)" session button:
-//    - logs 1 sample/sec for 180 seconds
-//    - builds a CSV at end of session
-//    - SAVES the CSV under the Reports tab (in localStorage)
-//    - user can download later from Reports
-// - Locks patient editing/switching while session runs
-//
-// NOTE: Report saving is done in the browser (localStorage).
-//       This is the fastest MVP. If you later want server-side file saving,
-//       we can add /api/reports endpoints and write to disk.
-//
+// New behavior (what you asked for):
+// - RAW data logging stays untouched (sessionSamples[] + CSV save under Reports)
+// - Clinical diagnosis only generates AFTER the 3-minute session ends
+// - Diagnosis is based on averages of the logged samples (same ones used in CSV)
+// - Diagnosis is stored under its own tab "Clinical Diagnosis" (localStorage)
 // ============================================================================
+
 
 // ---- Live vitals source (set by pc_main.cpp) ----
 // If pc_main.cpp calls setLiveVitalsSource(&liveVitals),
@@ -42,19 +38,18 @@ void setLiveVitalsSource(const Vitals* live) {
 // Convert risk score (0–3) → color hex code
 // Used for UI badges.
 // -------------------------------
-std::string riskColor(int risk) {
+static std::string riskColor(int risk) {
     switch (risk) {
         case 0: return "#2ecc71"; // green = normal
         case 1: return "#f1c40f"; // yellow = mild
         case 2: return "#e67e22"; // orange = moderate
         case 3: return "#e74c3c"; // red = severe
-        default: return "#bdc3c7"; // grey (fallback)
+        default: return "#bdc3c7"; // grey fallback
     }
 }
 
 // -------------------------------
-// Escape text so it can be safely injected into HTML (prevents broken markup)
-// Used for initial LLM response that is rendered in the page.
+// Escape text so it can be safely injected into HTML
 // -------------------------------
 static std::string htmlEscape(const std::string& s) {
     std::string out;
@@ -72,11 +67,89 @@ static std::string htmlEscape(const std::string& s) {
     return out;
 }
 
+// ============================================================================
+// SUPER SMALL JSON PARSER HELPERS (for MVP)
+// We only need to parse simple JSON like:
+// {
+//   "hr":72, "spo2":98, "temp":36.8, "resp":14, "sys":120, "dia":80,
+//   "risk_hr":1, ...,
+//   "name":"Jane", "age":21, "gender":"Female", "visit":"2026-01-31 ..."
+// }
+// ============================================================================
+
+// Find key in JSON: returns index of first char after ':', or npos.
+static size_t findJsonValueStart(const std::string& body, const std::string& key) {
+    std::string needle = "\"" + key + "\"";
+    size_t k = body.find(needle);
+    if (k == std::string::npos) return std::string::npos;
+
+    size_t colon = body.find(':', k + needle.size());
+    if (colon == std::string::npos) return std::string::npos;
+
+    size_t i = colon + 1;
+    while (i < body.size() && std::isspace((unsigned char)body[i])) i++;
+    return i;
+}
+
+static double jsonGetNumber(const std::string& body, const std::string& key, double fallback = 0.0) {
+    size_t i = findJsonValueStart(body, key);
+    if (i == std::string::npos) return fallback;
+
+    // parse optional sign + digits + optional decimal
+    size_t j = i;
+    if (j < body.size() && (body[j] == '-' || body[j] == '+')) j++;
+
+    bool sawDigit = false;
+    while (j < body.size() && std::isdigit((unsigned char)body[j])) { j++; sawDigit = true; }
+
+    if (j < body.size() && body[j] == '.') {
+        j++;
+        while (j < body.size() && std::isdigit((unsigned char)body[j])) { j++; sawDigit = true; }
+    }
+
+    if (!sawDigit) return fallback;
+
+    try {
+        return std::stod(body.substr(i, j - i));
+    } catch (...) {
+        return fallback;
+    }
+}
+
+static int jsonGetInt(const std::string& body, const std::string& key, int fallback = 0) {
+    return (int)std::lround(jsonGetNumber(body, key, (double)fallback));
+}
+
+static std::string jsonGetString(const std::string& body, const std::string& key, const std::string& fallback = "") {
+    size_t i = findJsonValueStart(body, key);
+    if (i == std::string::npos) return fallback;
+
+    // must start with quote
+    if (i >= body.size() || body[i] != '"') return fallback;
+    i++; // after opening quote
+
+    std::string out;
+    while (i < body.size()) {
+        char c = body[i++];
+        if (c == '"') break; // end
+        if (c == '\\' && i < body.size()) {
+            // minimal escape support
+            char n = body[i++];
+            if (n == 'n') out.push_back('\n');
+            else if (n == 't') out.push_back('\t');
+            else out.push_back(n);
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out.empty() ? fallback : out;
+}
+
+
 // ====================================================================
 // MAIN UI SERVER FUNCTION
-// Called from main() to launch the dashboard at http://localhost:8000
 // ====================================================================
-void startWebServer(const Vitals& current, const std::string& llmResponse) {
+void startWebServer(const Vitals& current, const std::string& /*llmResponse*/) {
 
     httplib::Server svr;
 
@@ -84,16 +157,12 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     // ROUTE: GET /api/vitals
     // Returns latest vitals + risk as JSON (for live UI updates)
     //
-    // Frontend calls this once per second (1Hz) to:
-    // - update the displayed vitals
-    // - (during a session) log a snapshot for the session CSV
+    // Frontend calls this once per second (1 Hz).
     // =========================================================
     svr.Get("/api/vitals", [&](const httplib::Request&, httplib::Response& res) {
 
-        // Use live pointer if available, otherwise use initial "current"
         const Vitals& v = (g_liveVitals ? *g_liveVitals : current);
 
-        // Risk scoring functions come from Risk_Assessment.h/.cpp
         std::map<std::string, int> risk = {
             {"HR",   calc_HR_risk(v.HR)},
             {"SpO2", calc_SpO2_risk(v.SpO2)},
@@ -102,8 +171,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
             {"BP",   calc_BP_risk(v.BP_sys, v.BP_dia)}
         };
 
-        // Build a simple JSON object manually
-        // (No JSON library needed for this size.)
         std::string json = "{";
         json += "\"hr\":" + std::to_string(v.HR) + ",";
         json += "\"spo2\":" + std::to_string(v.SpO2) + ",";
@@ -123,30 +190,84 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     });
 
     // =========================================================
-    // ROUTE: GET /api/summary
-    // Generates a NEW clinical summary by calling llama-server.
-    // Returns plain text.
+    // ROUTE: POST /api/diagnosis
     //
-    // Frontend calls this once on load (or you can add a refresh button later).
+    // Called ONCE after a 3-minute session ends.
+    // The browser sends averaged vitals + averaged risk levels + patient metadata.
+    // Server calls llama and returns plain text diagnosis.
     // =========================================================
-    svr.Get("/api/summary", [&](const httplib::Request&, httplib::Response& res) {
+    svr.Post("/api/diagnosis", [&](const httplib::Request& req, httplib::Response& res) {
 
-        const Vitals& v = (g_liveVitals ? *g_liveVitals : current);
+        const std::string& body = req.body;
 
-        std::map<std::string, int> risk = {
-            {"HR",   calc_HR_risk(v.HR)},
-            {"SpO2", calc_SpO2_risk(v.SpO2)},
-            {"Temp", calc_Temp_risk(v.Temp)},
-            {"Resp", calc_Resp_risk(v.Resp)},
-            {"BP",   calc_BP_risk(v.BP_sys, v.BP_dia)}
-        };
+        // Pull averaged vitals
+        Vitals v{};
+        v.HR     = (float)jsonGetNumber(body, "hr", 0);
+        v.SpO2   = (float)jsonGetNumber(body, "spo2", 0);
+        v.Temp   = (float)jsonGetNumber(body, "temp", 0);
+        v.Resp   = (float)jsonGetNumber(body, "resp", 0);
+        v.BP_sys = (float)jsonGetNumber(body, "sys", 0);
+        v.BP_dia = (float)jsonGetNumber(body, "dia", 0);
 
-        std::string prompt  = generatePrompt(v, risk);
-        std::string rawJson = sendToLLM(prompt);
-        std::string summary = extractContent(rawJson);
+        // Pull averaged risk (0–3)
+        int r_hr   = jsonGetInt(body, "risk_hr", 0);
+        int r_spo2 = jsonGetInt(body, "risk_spo2", 0);
+        int r_temp = jsonGetInt(body, "risk_temp", 0);
+        int r_resp = jsonGetInt(body, "risk_resp", 0);
+        int r_bp   = jsonGetInt(body, "risk_bp", 0);
 
-        res.set_content(summary, "text/plain; charset=utf-8");
+        // Patient metadata (strings)
+        std::string name   = jsonGetString(body, "name", "Unknown");
+        std::string gender = jsonGetString(body, "gender", "Unknown");
+        int age            = jsonGetInt(body, "age", 0);
+        std::string visit  = jsonGetString(body, "visit", "Unknown");
+
+        // Build prompt that forces your exact template formatting.
+        // IMPORTANT: This prompt uses averaged data (the session summary), not instantaneous vitals.
+        std::ostringstream prompt;
+        prompt
+        << "You are a clinical assistant generating a structured summary for a vitals monitoring session.\n"
+        << "Use ONLY the provided averaged session data. Do NOT invent numbers.\n"
+        << "Return output EXACTLY in the following template and keep headings exactly as shown:\n\n"
+        << "Name:\n"
+        << "Age:\n"
+        << "Gender:\n"
+        << "Date & Time of Visit:\n\n"
+        << "Patient Vitals: (Averaged data)\n\n"
+        << "HR:\n"
+        << "SpO2:\n"
+        << "Temperature:\n"
+        << "Respiratory Rate:\n"
+        << "BP:\n\n"
+        << "Risk Level: (averaged)\n\n"
+        << "**Disclaimer: All diagnoses are rendered from an AI, it does not constitute professional medical advice**\n\n"
+        << "Current status of Diagnosis:\n\n"
+        << "Treatment/Goal Plan:\n\n"
+        << "----\n"
+        << "PATIENT DATA (AVERAGED OVER 3 MINUTES):\n"
+        << "Name=" << name << "\n"
+        << "Age=" << age << "\n"
+        << "Gender=" << gender << "\n"
+        << "Visit=" << visit << "\n"
+        << "HR_bpm=" << v.HR << "\n"
+        << "SpO2_pct=" << v.SpO2 << "\n"
+        << "Temp_C=" << v.Temp << "\n"
+        << "Resp_rpm=" << v.Resp << "\n"
+        << "BP_sys=" << v.BP_sys << "\n"
+        << "BP_dia=" << v.BP_dia << "\n"
+        << "Risk_HR=" << r_hr << "\n"
+        << "Risk_SpO2=" << r_spo2 << "\n"
+        << "Risk_Temp=" << r_temp << "\n"
+        << "Risk_Resp=" << r_resp << "\n"
+        << "Risk_BP=" << r_bp << "\n";
+
+        // Call llama-server through your existing helper
+        std::string rawJson = sendToLLM(prompt.str());
+        std::string diagnosis = extractContent(rawJson);
+
+        res.set_content(diagnosis, "text/plain; charset=utf-8");
     });
+
 
     // =============================
     // ROUTE: GET /
@@ -154,8 +275,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
     // =============================
     svr.Get("/", [&](const httplib::Request&, httplib::Response& res) {
 
-        // Initial risk values used for first render.
-        // After page loads, the frontend will poll /api/vitals and update live.
         std::map<std::string, int> risk = {
             {"HR",   calc_HR_risk(current.HR)},
             {"SpO2", calc_SpO2_risk(current.SpO2)},
@@ -164,12 +283,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
             {"BP",   calc_BP_risk(current.BP_sys, current.BP_dia)}
         };
 
-        // =====================================================================
-        // Build HTML as a single string.
-        // NOTE: We mix:
-        // - a big raw-string (R"HTML(... )HTML") for most HTML/CSS/JS
-        // - plus small string concatenations to inject initial values
-        // =====================================================================
         std::string html = R"HTML(
         <html>
         <head>
@@ -182,10 +295,7 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     background: #f2f3f5;
                 }
 
-                .app {
-                    display: flex;
-                    min-height: 100vh;
-                }
+                .app { display: flex; min-height: 100vh; }
 
                 .sidebar {
                     width: 250px;
@@ -275,16 +385,9 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     padding: 12px 14px;
                 }
 
-                .container {
-                    max-width: 900px;
-                    margin: 0;
-                }
+                .container { max-width: 900px; margin: 0; }
 
-                h2 {
-                    text-align: left;
-                    margin: 0 0 8px 0;
-                    font-weight: 700;
-                }
+                h2 { text-align: left; margin: 0 0 8px 0; font-weight: 700; }
 
                 .grid {
                     display: grid;
@@ -299,16 +402,9 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 }
 
-                .vital-name {
-                    font-size: 16px;
-                    font-weight: 600;
-                }
+                .vital-name { font-size: 16px; font-weight: 600; }
 
-                .vital-value {
-                    font-size: 32px;
-                    font-weight: 700;
-                    margin-top: 5px;
-                }
+                .vital-value { font-size: 32px; font-weight: 700; margin-top: 5px; }
 
                 .badge {
                     display: inline-block;
@@ -322,7 +418,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                 .summary-card { margin-top: 30px; }
                 .summary-content { white-space: pre-wrap; margin-top: 10px; line-height: 1.5; }
 
-                /* Small button style for patient cards + session controls */
                 .mini-btn {
                     padding: 8px 10px;
                     border-radius: 10px;
@@ -331,12 +426,8 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                     cursor: pointer;
                     font-size: 13px;
                 }
-                .mini-btn:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
+                .mini-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-                /* Simple inputs */
                 .field {
                     width: 100%;
                     padding: 10px;
@@ -357,10 +448,11 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         <button id="navPatients" class="active" onclick="go('patients')">Patients</button>
                         <button id="navLive" onclick="go('live')">Live Vitals</button>
                         <button id="navReports" onclick="go('reports')">Reports</button>
+                        <button id="navDx" onclick="go('diagnosis')">Clinical Diagnosis</button>
                     </div>
 
                     <div style="margin-top:16px;" class="muted">
-                        Set patient info, select active patient, then start a 3-minute session.
+                        Run a 3-minute session to generate a diagnosis from averaged session data.
                     </div>
                 </aside>
 
@@ -372,9 +464,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                     <!-- ==========================================================
                          PAGE: PATIENTS
-                         - Two profile slots (A + B)
-                         - Each profile stores: name, gender, age
-                         - Stored in localStorage so refresh keeps data
                          ========================================================== -->
                     <section id="pagePatients" class="page active">
                         <div class="card">
@@ -384,7 +473,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             </div>
 
                             <div class="list">
-                                <!-- Patient A -->
                                 <div class="list-item">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
                                         <div>
@@ -398,7 +486,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                     </div>
                                 </div>
 
-                                <!-- Patient B -->
                                 <div class="list-item">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
                                         <div>
@@ -413,7 +500,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 </div>
                             </div>
 
-                            <!-- Edit form (hidden until user clicks Edit) -->
                             <div id="patientForm" class="card" style="margin-top:14px; display:none;">
                                 <div class="vital-name">Edit patient</div>
 
@@ -450,12 +536,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                     <!-- ==========================================================
                          PAGE: LIVE
-                         - Shows which patient is active
-                         - Provides Start Vitals session button:
-                           logs 1 sample/sec for 3 minutes
-                           builds CSV at end
-                           SAVES to Reports tab (not auto-download)
-                         - Displays live vitals + risks
                          ========================================================== -->
                     <section id="pageLive" class="page">
                         <div class="container">
@@ -464,11 +544,10 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 Active patient: <span id="selectedPatientLabel">None</span>
                             </div>
 
-                            <!-- Session controls -->
                             <div class="card" style="margin-bottom:14px;">
                                 <div class="vital-name">Vitals Session</div>
                                 <div class="muted" style="margin-top:6px;">
-                                    Logs 1 sample/sec for 3 minutes, then saves a CSV under Reports.
+                                    Logs 1 sample/sec for 3 minutes, then saves a CSV under Reports and generates diagnosis.
                                 </div>
 
                                 <div style="display:flex; align-items:center; gap:12px; margin-top:12px;">
@@ -483,63 +562,43 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             <div class="grid">
         )HTML";
 
-        // ==========================================================
-        // Initial cards rendered using "current" vitals.
-        // Frontend will overwrite these values after first /api/vitals fetch.
-        // ==========================================================
-
-        // HEART RATE CARD
+        // initial cards
         html += "<div class='card'><div class='vital-name'>Heart Rate</div>";
         html += "<div id='hrValue' class='vital-value'>" + std::to_string((int)current.HR) + " bpm</div>";
         html += "<div id='hrRisk' class='badge' style='background:" + riskColor(risk["HR"]) + "'>Risk " + std::to_string(risk["HR"]) + "</div></div>";
 
-        // SpO2 CARD
         html += "<div class='card'><div class='vital-name'>SpO₂</div>";
         html += "<div id='spo2Value' class='vital-value'>" + std::to_string((int)current.SpO2) + " %</div>";
         html += "<div id='spo2Risk' class='badge' style='background:" + riskColor(risk["SpO2"]) + "'>Risk " + std::to_string(risk["SpO2"]) + "</div></div>";
 
-        // TEMPERATURE CARD
         html += "<div class='card'><div class='vital-name'>Temperature</div>";
         html += "<div id='tempValue' class='vital-value'>" + std::to_string(current.Temp) + " °C</div>";
         html += "<div id='tempRisk' class='badge' style='background:" + riskColor(risk["Temp"]) + "'>Risk " + std::to_string(risk["Temp"]) + "</div></div>";
 
-        // RESPIRATORY RATE CARD
         html += "<div class='card'><div class='vital-name'>Respiratory Rate</div>";
         html += "<div id='respValue' class='vital-value'>" + std::to_string((int)current.Resp) + " rpm</div>";
         html += "<div id='respRisk' class='badge' style='background:" + riskColor(risk["Resp"]) + "'>Risk " + std::to_string(risk["Resp"]) + "</div></div>";
 
-        // BLOOD PRESSURE CARD
         html += "<div class='card'><div class='vital-name'>Blood Pressure</div>";
         html += "<div id='bpValue' class='vital-value'>" + std::to_string((int)current.BP_sys)
              + "/" + std::to_string((int)current.BP_dia) + " mmHg</div>";
         html += "<div id='bpRisk' class='badge' style='background:" + riskColor(risk["BP"]) + "'>Risk "
              + std::to_string(risk["BP"]) + "</div></div>";
 
-        // ==========================================================
-        // Summary section + JS
-        // ==========================================================
+        // Diagnosis box on Live page (not generated until session ends)
         html += R"HTML(
                             </div>
 
                             <div class="card summary-card">
-                                <div class="vital-name">Clinical Summary</div>
-                                <div id="summaryText" class="summary-content">
-        )HTML";
-
-        // Initial summary shown immediately (passed into startWebServer)
-        html += htmlEscape(llmResponse);
-
-        html += R"HTML(
-                                </div>
-                                <div id="summaryStatus" class="muted" style="margin-top:10px;"></div>
+                                <div class="vital-name">Clinical Diagnosis (after session)</div>
+                                <div id="dxText" class="summary-content">Run a 3-minute session to generate diagnosis.</div>
+                                <div id="dxStatus" class="muted" style="margin-top:10px;"></div>
                             </div>
                         </div>
                     </section>
 
                     <!-- ==========================================================
                          PAGE: REPORTS
-                         - Lists saved CSV exports (stored in localStorage)
-                         - Lets user download later
                          ========================================================== -->
                     <section id="pageReports" class="page">
                         <div class="card">
@@ -554,9 +613,24 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         </div>
                     </section>
 
+                    <!-- ==========================================================
+                         PAGE: CLINICAL DIAGNOSIS
+                         ========================================================== -->
+                    <section id="pageDx" class="page">
+                        <div class="card">
+                            <div class="vital-name">Clinical Diagnosis</div>
+                            <div class="muted">Generated once per completed 3-minute session.</div>
+                            <div class="list" id="dxList" style="margin-top:14px;"></div>
+
+                            <div style="margin-top:12px;">
+                                <button class="mini-btn" onclick="clearAllDx()">Clear all</button>
+                            </div>
+                        </div>
+                    </section>
+
                     <script>
                         // ==========================================================
-                        // Simple navigation within this single HTML page
+                        // Navigation
                         // ==========================================================
                         const historyStack = [];
                         let currentPage = 'patients';
@@ -565,12 +639,15 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             document.getElementById('navPatients').classList.toggle('active', page === 'patients');
                             document.getElementById('navLive').classList.toggle('active', page === 'live');
                             document.getElementById('navReports').classList.toggle('active', page === 'reports');
+                            document.getElementById('navDx').classList.toggle('active', page === 'diagnosis');
                         }
 
                         function setPageTitle(page) {
-                            const title = (page === 'patients') ? 'Patients'
-                                         : (page === 'live') ? 'Live Vitals'
-                                         : 'Reports';
+                            const title =
+                                (page === 'patients') ? 'Patients' :
+                                (page === 'live') ? 'Live Vitals' :
+                                (page === 'reports') ? 'Reports' :
+                                'Clinical Diagnosis';
                             document.getElementById('pageTitle').textContent = title;
                         }
 
@@ -578,14 +655,14 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             document.getElementById('pagePatients').classList.toggle('active', page === 'patients');
                             document.getElementById('pageLive').classList.toggle('active', page === 'live');
                             document.getElementById('pageReports').classList.toggle('active', page === 'reports');
+                            document.getElementById('pageDx').classList.toggle('active', page === 'diagnosis');
+
                             currentPage = page;
                             setActiveNav(page);
                             setPageTitle(page);
 
-                            // If user navigates to Reports, refresh the list (safe to call anytime)
-                            if (page === 'reports') {
-                                renderReports();
-                            }
+                            if (page === 'reports') renderReports();
+                            if (page === 'diagnosis') renderDx();
                         }
 
                         function go(page) {
@@ -596,28 +673,19 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                         function back() {
                             if (historyStack.length === 0) return;
-                            const prev = historyStack.pop();
-                            showPage(prev);
+                            showPage(historyStack.pop());
                         }
 
                         // ==========================================================
-                        // Patient Profiles (max 2)
-                        //
-                        // Stored in localStorage so refresh keeps patient info.
-                        // activePatientId determines which patient session applies to.
+                        // Patient profiles (localStorage)
                         // ==========================================================
                         const LS_KEY = "vitals_patients_v1";
-
-                        // Default structure
                         let patients = [
-                            { name: "", gender: "", age: "", lastExport: "" }, // Patient A
-                            { name: "", gender: "", age: "", lastExport: "" }  // Patient B
+                            { name: "", gender: "", age: "", lastExport: "" },
+                            { name: "", gender: "", age: "", lastExport: "" }
                         ];
 
-                        // Which patient is active (0 or 1)
                         let activePatientId = null;
-
-                        // Which patient is being edited (0 or 1)
                         let editingPatientId = null;
 
                         function loadPatients() {
@@ -626,17 +694,12 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 if (!raw) return;
                                 const obj = JSON.parse(raw);
                                 if (Array.isArray(obj) && obj.length === 2) patients = obj;
-                            } catch (e) {
-                                // ignore
-                            }
+                            } catch (e) {}
                         }
 
                         function savePatientsToStorage() {
-                            try {
-                                localStorage.setItem(LS_KEY, JSON.stringify(patients));
-                            } catch (e) {
-                                // ignore
-                            }
+                            try { localStorage.setItem(LS_KEY, JSON.stringify(patients)); }
+                            catch (e) {}
                         }
 
                         function fmtPatient(p) {
@@ -650,7 +713,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                             document.getElementById("pA_status").textContent =
                                 patients[0].lastExport ? `• Last export: ${patients[0].lastExport}` : "";
-
                             document.getElementById("pB_status").textContent =
                                 patients[1].lastExport ? `• Last export: ${patients[1].lastExport}` : "";
                         }
@@ -658,7 +720,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         function editPatient(id) {
                             if (sessionRunning) return alert("Stop the session before editing.");
                             editingPatientId = id;
-
                             document.getElementById("patientForm").style.display = "block";
                             document.getElementById("f_name").value = patients[id].name || "";
                             document.getElementById("f_gender").value = patients[id].gender || "";
@@ -674,9 +735,7 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             const name = document.getElementById("f_name").value.trim();
                             const gender = document.getElementById("f_gender").value.trim();
                             const age = document.getElementById("f_age").value.trim();
-
                             if (!name || !gender || !age) return alert("Fill name, gender, and age.");
-
                             patients[editingPatientId] = { ...patients[editingPatientId], name, gender, age };
                             savePatientsToStorage();
                             cancelEdit();
@@ -685,22 +744,16 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
 
                         function activatePatient(id) {
                             if (sessionRunning) return alert("Stop the session before switching patients.");
-
                             const p = patients[id];
                             if (!p.name || !p.gender || !p.age) return alert("Set patient info first (Edit → Save).");
-
                             activePatientId = id;
-
-                            // Update the live page label
                             const label = `${id === 0 ? "Patient A" : "Patient B"}: ${p.name}`;
                             document.getElementById('selectedPatientLabel').textContent = label;
-
                             historyStack.push(currentPage);
                             showPage('live');
                         }
 
                         function lockPatientControls(locked) {
-                            // Disable editing/selecting while session runs
                             document.getElementById("btnEditA").disabled = locked;
                             document.getElementById("btnSelectA").disabled = locked;
                             document.getElementById("btnEditB").disabled = locked;
@@ -708,12 +761,7 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         }
 
                         // ==========================================================
-                        // Reports storage (CSV saved in browser, shown in Reports tab)
-                        //
-                        // Each report object:
-                        // { id, filename, createdAtIso, patientLabel, csvText, sampleCount }
-                        //
-                        // MVP: store as localStorage JSON.
+                        // Reports storage (CSV) - unchanged behavior
                         // ==========================================================
                         const REPORTS_KEY = "vitals_reports_v1";
                         let reports = [];
@@ -724,32 +772,23 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 if (!raw) { reports = []; return; }
                                 const arr = JSON.parse(raw);
                                 reports = Array.isArray(arr) ? arr : [];
-                            } catch (e) {
-                                reports = [];
-                            }
+                            } catch (e) { reports = []; }
                         }
 
                         function saveReports() {
-                            try {
-                                localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
-                            } catch (e) {
-                                alert("Storage is full. Delete some reports and try again.");
-                            }
+                            try { localStorage.setItem(REPORTS_KEY, JSON.stringify(reports)); }
+                            catch (e) { alert("Storage is full. Delete some reports and try again."); }
                         }
 
-                        // This function DOES download; we only call it when user clicks Download in Reports.
                         function downloadTextFile(filename, text) {
                             const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
                             const url = URL.createObjectURL(blob);
-
                             const a = document.createElement("a");
                             a.href = url;
                             a.download = filename;
-
                             document.body.appendChild(a);
                             a.click();
                             a.remove();
-
                             URL.revokeObjectURL(url);
                         }
 
@@ -762,7 +801,6 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 return;
                             }
 
-                            // Show newest first
                             const sorted = [...reports].sort((a,b) =>
                                 (b.createdAtIso || "").localeCompare(a.createdAtIso || "")
                             );
@@ -805,7 +843,79 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         }
 
                         // ==========================================================
-                        // Risk badge color for JS (matches C++ riskColor)
+                        // Clinical Diagnosis storage (separate tab)
+                        // ==========================================================
+                        const DX_KEY = "vitals_dx_v1";
+                        let dxItems = []; // {id, createdAtIso, patientLabel, text, reportId}
+
+                        function loadDx() {
+                            try {
+                                const raw = localStorage.getItem(DX_KEY);
+                                if (!raw) { dxItems = []; return; }
+                                const arr = JSON.parse(raw);
+                                dxItems = Array.isArray(arr) ? arr : [];
+                            } catch (e) { dxItems = []; }
+                        }
+
+                        function saveDx() {
+                            try { localStorage.setItem(DX_KEY, JSON.stringify(dxItems)); }
+                            catch (e) { alert("Storage is full. Delete some diagnoses and try again."); }
+                        }
+
+                        function renderDx() {
+                            const list = document.getElementById("dxList");
+                            if (!list) return;
+
+                            if (!dxItems.length) {
+                                list.innerHTML = `<div class="muted">No diagnoses generated yet.</div>`;
+                                return;
+                            }
+
+                            const sorted = [...dxItems].sort((a,b) =>
+                                (b.createdAtIso || "").localeCompare(a.createdAtIso || "")
+                            );
+
+                            list.innerHTML = sorted.map(d => `
+                                <div class="list-item">
+                                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                                        <div style="flex:1;">
+                                            <div><b>${d.patientLabel}</b></div>
+                                            <div class="muted">${new Date(d.createdAtIso).toLocaleString()}</div>
+                                            <div style="margin-top:10px; white-space:pre-wrap; line-height:1.5;">${escapeHtml(d.text)}</div>
+                                        </div>
+                                        <div style="display:flex; gap:8px;">
+                                            <button class="mini-btn" onclick="deleteDx('${d.id}')">Delete</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join("");
+                        }
+
+                        function deleteDx(id) {
+                            dxItems = dxItems.filter(x => x.id !== id);
+                            saveDx();
+                            renderDx();
+                        }
+
+                        function clearAllDx() {
+                            if (!confirm("Clear all diagnoses?")) return;
+                            dxItems = [];
+                            saveDx();
+                            renderDx();
+                        }
+
+                        // Safe-ish HTML escaping for showing dx text inside list items
+                        function escapeHtml(s) {
+                            return String(s)
+                                .replaceAll("&","&amp;")
+                                .replaceAll("<","&lt;")
+                                .replaceAll(">","&gt;")
+                                .replaceAll('"',"&quot;")
+                                .replaceAll("'","&#39;");
+                        }
+
+                        // ==========================================================
+                        // Risk badge color (matches C++)
                         // ==========================================================
                         function riskColorJS(r) {
                             if (r === 0) return "#2ecc71";
@@ -815,23 +925,19 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         }
 
                         // ==========================================================
-                        // Live vitals polling (1Hz)
-                        // - updates UI every second
-                        // - session logger also uses /api/vitals snapshots
+                        // Live vitals polling (1 Hz)
                         // ==========================================================
                         async function refreshVitals() {
                             try {
                                 const r = await fetch('/api/vitals');
                                 const v = await r.json();
 
-                                // Update main vital readouts
                                 document.getElementById('hrValue').textContent   = Math.round(v.hr) + " bpm";
                                 document.getElementById('spo2Value').textContent = Math.round(v.spo2) + " %";
                                 document.getElementById('tempValue').textContent = Number(v.temp).toFixed(1) + " °C";
                                 document.getElementById('respValue').textContent = Math.round(v.resp) + " rpm";
                                 document.getElementById('bpValue').textContent   = Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg";
 
-                                // Update risk badges
                                 const hrR = document.getElementById('hrRisk');
                                 const spR = document.getElementById('spo2Risk');
                                 const tR  = document.getElementById('tempRisk');
@@ -843,41 +949,11 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                                 tR.textContent  = "Risk " + v.risk_temp;  tR.style.background  = riskColorJS(v.risk_temp);
                                 rrR.textContent = "Risk " + v.risk_resp;  rrR.style.background = riskColorJS(v.risk_resp);
                                 bpR.textContent = "Risk " + v.risk_bp;    bpR.style.background = riskColorJS(v.risk_bp);
-                            } catch (e) {
-                                // If server isn't ready or fetch fails, ignore for now.
-                            }
+                            } catch (e) {}
                         }
 
                         // ==========================================================
-                        // Clinical summary refresh (calls /api/summary once)
-                        // ==========================================================
-                        async function refreshSummary() {
-                            const el = document.getElementById('summaryText');
-                            const status = document.getElementById('summaryStatus');
-                            if (!el) return;
-
-                            if (status) status.textContent = "Updating summary...";
-
-                            try {
-                                const r = await fetch('/api/summary');
-                                const t = await r.text();
-                                el.textContent = t;
-                                if (status) status.textContent = "";
-                            } catch (e) {
-                                if (status) status.textContent = "Update failed.";
-                            }
-                        }
-
-                        // ==========================================================
-                        // 3-minute Vitals Session (1 Hz logging)
-                        //
-                        // Behavior:
-                        // - requires active patient
-                        // - locks patient controls
-                        // - logs one snapshot per second for 180 seconds
-                        // - builds CSV at end
-                        // - SAVES CSV to Reports (localStorage)
-                        // - user downloads later from Reports tab
+                        // 3-minute Session Logging
                         // ==========================================================
                         const LOG_HZ = 1;
                         const SESSION_SECONDS = 180;
@@ -885,9 +961,9 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                         let sessionRunning = false;
                         let secondsLeft = SESSION_SECONDS;
 
-                        let countdownTimer = null; // counts down seconds
-                        let logTimer = null;       // triggers sampling
-                        let sessionSamples = [];   // array of row objects
+                        let countdownTimer = null;
+                        let logTimer = null;
+                        let sessionSamples = [];
 
                         function pad2(n){ return String(n).padStart(2,'0'); }
 
@@ -897,37 +973,20 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             document.getElementById("timerLabel").textContent = `${m}:${pad2(s)}`;
                         }
 
-                        // Fetch a single snapshot from backend and store it in sessionSamples[]
                         async function sampleVitalsOnce() {
                             const r = await fetch('/api/vitals');
                             const v = await r.json();
 
                             sessionSamples.push({
                                 ts_iso: new Date().toISOString(),
-
-                                hr: v.hr,
-                                spo2: v.spo2,
-                                temp: v.temp,
-                                resp: v.resp,
-                                sys: v.sys,
-                                dia: v.dia,
-
-                                risk_hr: v.risk_hr,
-                                risk_spo2: v.risk_spo2,
-                                risk_temp: v.risk_temp,
-                                risk_resp: v.risk_resp,
-                                risk_bp: v.risk_bp
+                                hr: v.hr, spo2: v.spo2, temp: v.temp, resp: v.resp, sys: v.sys, dia: v.dia,
+                                risk_hr: v.risk_hr, risk_spo2: v.risk_spo2, risk_temp: v.risk_temp,
+                                risk_resp: v.risk_resp, risk_bp: v.risk_bp
                             });
                         }
 
-                        // Build a CSV string with:
-                        // - patient metadata at top
-                        // - blank line
-                        // - a header row + data rows
                         function buildCSV(patient, samples) {
                             const lines = [];
-
-                            // Metadata block (helps TA see patient info is attached to session)
                             lines.push(`patient_name,${patient.name}`);
                             lines.push(`gender,${patient.gender}`);
                             lines.push(`age,${patient.age}`);
@@ -935,10 +994,8 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             lines.push(`session_duration_s,${SESSION_SECONDS}`);
                             lines.push("");
 
-                            // Table header
                             lines.push("timestamp_iso,HR_bpm,SpO2_pct,Temp_C,Resp_rpm,BP_sys,BP_dia,risk_hr,risk_spo2,risk_temp,risk_resp,risk_bp");
 
-                            // Rows
                             for (const s of samples) {
                                 lines.push([
                                     s.ts_iso,
@@ -949,74 +1006,151 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             return lines.join("\n");
                         }
 
+                        // Compute averages from the session samples (these are the values we send to LLM)
+                        function computeAverages(samples) {
+                            const n = samples.length || 1;
+
+                            const mean = (arr, key) => arr.reduce((a,x)=>a + Number(x[key]||0), 0) / n;
+
+                            const avg = {
+                                hr:   mean(samples, "hr"),
+                                spo2: mean(samples, "spo2"),
+                                temp: mean(samples, "temp"),
+                                resp: mean(samples, "resp"),
+                                sys:  mean(samples, "sys"),
+                                dia:  mean(samples, "dia"),
+                                // averaged risk: mean then round to nearest int 0–3
+                                risk_hr:   Math.round(mean(samples, "risk_hr")),
+                                risk_spo2: Math.round(mean(samples, "risk_spo2")),
+                                risk_temp: Math.round(mean(samples, "risk_temp")),
+                                risk_resp: Math.round(mean(samples, "risk_resp")),
+                                risk_bp:   Math.round(mean(samples, "risk_bp"))
+                            };
+                            return avg;
+                        }
+
+                        async function generateDiagnosisFromSession(reportId, patient, samples) {
+                            const dxTextEl = document.getElementById("dxText");
+                            const dxStatusEl = document.getElementById("dxStatus");
+
+                            if (dxStatusEl) dxStatusEl.textContent = "Generating clinical diagnosis…";
+                            if (dxTextEl) dxTextEl.textContent = "Generating…";
+
+                            const avg = computeAverages(samples);
+                            const visit = new Date().toLocaleString();
+
+                            // Payload sent to server endpoint /api/diagnosis
+                            const payload = {
+                                name: patient.name,
+                                age: Number(patient.age),
+                                gender: patient.gender,
+                                visit: visit,
+
+                                hr: avg.hr,
+                                spo2: avg.spo2,
+                                temp: avg.temp,
+                                resp: avg.resp,
+                                sys: avg.sys,
+                                dia: avg.dia,
+
+                                risk_hr: avg.risk_hr,
+                                risk_spo2: avg.risk_spo2,
+                                risk_temp: avg.risk_temp,
+                                risk_resp: avg.risk_resp,
+                                risk_bp: avg.risk_bp
+                            };
+
+                            try {
+                                const r = await fetch("/api/diagnosis", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify(payload)
+                                });
+
+                                const text = await r.text();
+
+                                // Show on Live page
+                                if (dxTextEl) dxTextEl.textContent = text;
+                                if (dxStatusEl) dxStatusEl.textContent = "";
+
+                                // Save into Diagnosis tab
+                                const id = "dx_" + Math.random().toString(16).slice(2) + "_" + Date.now();
+                                const nowIso = new Date().toISOString();
+                                const patientLabel = `${activePatientId === 0 ? "Patient A" : "Patient B"}: ${patient.name}`;
+
+                                dxItems.push({
+                                    id,
+                                    createdAtIso: nowIso,
+                                    patientLabel,
+                                    text,
+                                    reportId
+                                });
+
+                                saveDx();
+                                renderDx();
+
+                            } catch (e) {
+                                if (dxStatusEl) dxStatusEl.textContent = "Diagnosis generation failed.";
+                                if (dxTextEl) dxTextEl.textContent = "Run another session and try again.";
+                            }
+                        }
+
                         function startVitalsSession() {
                             if (sessionRunning) return;
 
-                            // Must have an active patient selected
                             if (activePatientId === null) return alert("Select a patient first.");
-
                             const p = patients[activePatientId];
                             if (!p.name || !p.gender || !p.age) return alert("Complete patient profile first.");
 
-                            // Lock state
                             sessionRunning = true;
                             secondsLeft = SESSION_SECONDS;
                             sessionSamples = [];
                             updateTimerUI();
 
-                            // Lock UI: can't edit/switch patients during recording
                             lockPatientControls(true);
 
-                            // Update session status
                             document.getElementById("startBtn").disabled = true;
                             document.getElementById("sessionStatus").textContent = "Recording…";
 
-                            // Sample immediately, then every 1 second
+                            // Clear live diagnosis display (so it doesn't look like it updated mid-session)
+                            document.getElementById("dxStatus").textContent = "";
+                            document.getElementById("dxText").textContent = "Recording session… diagnosis will generate after 3 minutes.";
+
                             sampleVitalsOnce().catch(()=>{});
                             logTimer = setInterval(() => sampleVitalsOnce().catch(()=>{}), 1000 / LOG_HZ);
 
-                            // Countdown every second
                             countdownTimer = setInterval(() => {
                                 secondsLeft--;
                                 updateTimerUI();
-
-                                if (secondsLeft <= 0) {
-                                    stopVitalsSessionAndSaveReport();
-                                }
+                                if (secondsLeft <= 0) stopVitalsSessionAndSaveReport();
                             }, 1000);
                         }
 
                         function stopVitalsSessionAndSaveReport() {
                             if (!sessionRunning) return;
 
-                            // Stop timers
                             sessionRunning = false;
                             clearInterval(countdownTimer);
                             clearInterval(logTimer);
                             countdownTimer = null;
                             logTimer = null;
 
-                            // Unlock UI
                             lockPatientControls(false);
                             document.getElementById("startBtn").disabled = false;
 
-                            // If no samples, stop gracefully
                             if (sessionSamples.length === 0) {
                                 document.getElementById("sessionStatus").textContent = "Stopped (no data).";
                                 return;
                             }
 
-                            // Build filename
                             const p = patients[activePatientId];
                             const now = new Date();
                             const stamp = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}_${pad2(now.getHours())}-${pad2(now.getMinutes())}-${pad2(now.getSeconds())}`;
                             const safeName = p.name.replace(/[^a-z0-9]+/gi, "_");
                             const fname = `${activePatientId === 0 ? "PatientA" : "PatientB"}_${safeName}_${stamp}.csv`;
 
-                            // Build CSV text
                             const csv = buildCSV(p, sessionSamples);
 
-                            // Save report entry (instead of auto-downloading)
                             const reportId = "r_" + Math.random().toString(16).slice(2) + "_" + Date.now();
 
                             reports.push({
@@ -1031,34 +1165,39 @@ void startWebServer(const Vitals& current, const std::string& llmResponse) {
                             saveReports();
                             renderReports();
 
-                            // Update UI status (now it’s “Saved”, not “Exported”)
-                            document.getElementById("sessionStatus").textContent = "Complete. Saved to Reports.";
+                            document.getElementById("sessionStatus").textContent = "Complete. Saved to Reports. Generating diagnosis…";
 
-                            // Update "last export" label on patient list
                             patients[activePatientId].lastExport = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
                             savePatientsToStorage();
                             renderPatientsUI();
+
+                            // NOW generate diagnosis ONCE using the samples we just collected
+                            generateDiagnosisFromSession(reportId, p, sessionSamples)
+                                .then(() => {
+                                    document.getElementById("sessionStatus").textContent = "Complete. Saved to Reports + Diagnosis.";
+                                })
+                                .catch(() => {
+                                    document.getElementById("sessionStatus").textContent = "Complete. Saved to Reports. Diagnosis failed.";
+                                });
                         }
 
                         // ==========================================================
-                        // Page initialization on load
+                        // Init
                         // ==========================================================
                         window.addEventListener('load', () => {
-                            // Load stored patient profiles + reports
                             loadPatients();
                             renderPatientsUI();
 
                             loadReports();
                             renderReports();
 
+                            loadDx();
+                            renderDx();
+
                             updateTimerUI();
 
-                            // Start live vitals polling (1Hz)
                             refreshVitals();
                             setInterval(refreshVitals, 1000);
-
-                            // Generate summary in background on load
-                            setTimeout(refreshSummary, 100);
                         });
                     </script>
 
