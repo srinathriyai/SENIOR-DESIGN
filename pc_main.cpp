@@ -1,5 +1,7 @@
+// FILE NAME: pc_main.cpp
 #include "WebServer.h"
-#include "LLM.h"
+#include "LLM.h"                 
+#include "Risk_Assessment.h" // <-- REQUIRED for calc_*_risk()
 #include <map>
 #include <string>
 #include <thread>
@@ -7,7 +9,9 @@
 #include <cmath>
 #include <iostream>
 
-// small helper to clamp values
+// Utility helper that constrains a floating-point value to a specified range
+// If the value is below the lower bound, the lower bound is returned
+// If the value is above the upper bound, the upper bound is returned
 static float clampf(float x, float lo, float hi) {
     if (x < lo) return lo;
     if (x > hi) return hi;
@@ -16,7 +20,6 @@ static float clampf(float x, float lo, float hi) {
 
 int main() {
     // Live vitals struct (this is what will update over time)
-    //DATA ALWAYS CHANGES IN MEMORY
     Vitals live{};
     live.HR = 75;
     live.SpO2 = 94;
@@ -26,21 +29,7 @@ int main() {
     live.BP_dia = 95;
 
     // Give WebServer.cpp access to live-updating vitals
-    // when this gets called, whenever vitals are needed, we read this struct.
-    setLiveVitalsSource(&live); // refer to webserver.cpp
-
-    // Compute initial risk map (for initial prompt)
-    std::map<std::string, int> risk = {
-        {"HR",   calc_HR_risk(live.HR)},
-        {"SpO2", calc_SpO2_risk(live.SpO2)},
-        {"Temp", calc_Temp_risk(live.Temp)},
-        {"Resp", calc_Resp_risk(live.Resp)},
-        {"BP",   calc_BP_risk(live.BP_sys, live.BP_dia)}
-    };
-
-    // Initial LLM text shown on page load
-    // (still slow; later we can cache or generate in background)
-    std::string initial = extractContent(sendToLLM(generatePrompt(live, risk)));
+    setLiveVitalsSource(&live);
 
     // Optional debug prints (one-time)
     std::cout << "Initial risks:\n";
@@ -57,7 +46,7 @@ int main() {
         while (true) {
             t += 0.12f;
 
-            // These are designed to cross risk thresholds occasionally
+            // Designed to cross risk thresholds occasionally
             live.HR   = clampf(85.0f + 50.0f * std::sin(t), 35.0f, 150.0f);
             live.SpO2 = clampf(96.0f - 12.0f * (0.5f + 0.5f * std::sin(t * 0.7f)), 82.0f, 99.0f);
             live.Temp = clampf(37.2f + 2.2f * std::sin(t * 0.5f), 34.5f, 40.5f);
@@ -70,6 +59,10 @@ int main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
     });
+
+    // You are no longer generating LLM output on page load.
+    // Diagnosis is generated AFTER each session via POST /api/diagnosis.
+    std::string initial = ""; // keep parameter happy
 
     // Start dashboard on localhost:8000 (this blocks)
     startWebServer(live, initial);
