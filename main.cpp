@@ -10,7 +10,7 @@
 //WiFi credentials - CHANGE THESE
 //regular WiFi:
 const char* WIFI_SSID = "UCR-GUEST";
-const char* WIFI_PASSWORD = "Bl2$v8h1";
+const char* WIFI_PASSWORD = "Rg#3EAOp";
 
 //WPA2-Enterprise  eduroam config:
 //uncomment
@@ -19,7 +19,7 @@ const char* WIFI_PASSWORD = "Bl2$v8h1";
 // const char* EAP_PASSWORD = "password";
 
 // PC server address - CHANGE THIS to your PC's local IP
-const char* PC_SERVER_URL = "http://0.0.0.0:8000/api/vitals";  // Find your PC's IP using ipconfig/ifconfig
+const char* PC_SERVER_URL = "http://10.14.9.237:8000/api/vitals";  // Find your PC's IP using ipconfig/ifconfig
 
 // Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP

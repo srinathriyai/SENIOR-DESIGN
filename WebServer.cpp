@@ -8,6 +8,14 @@
 #include <cctype>
 #include <cmath>
 
+#include <mutex>
+#include <chrono>
+
+static std::mutex g_vitalsMutex;
+static Vitals g_latestFromWifi{};
+static bool g_hasWifiVitals = false;
+static std::chrono::steady_clock::time_point g_lastRx;
+
 // ============================================================================
 // WebServer.cpp (Clinical Diagnosis AFTER 3-minute session)
 //
@@ -225,32 +233,87 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
     // GET /api/vitals
     // ---------------------------------------------------------
     svr.Get("/api/vitals", [&](const httplib::Request&, httplib::Response& res) {
-        const Vitals& v = (g_liveVitals ? *g_liveVitals : current);
 
-        std::map<std::string, int> risk = {
-            {"HR",   calc_HR_risk(v.HR)},
-            {"SpO2", calc_SpO2_risk(v.SpO2)},
-            {"Temp", calc_Temp_risk(v.Temp)},
-            {"Resp", calc_Resp_risk(v.Resp)},
-            {"BP",   calc_BP_risk(v.BP_sys, v.BP_dia)}
-        };
+        // 1) pick vitals source (wifi overrides if present)
+        Vitals vcopy = (g_liveVitals ? *g_liveVitals : current);
+        {
+            std::lock_guard<std::mutex> lock(g_vitalsMutex);
+            if (g_hasWifiVitals) vcopy = g_latestFromWifi;
+        }
 
+        // 2) compute stale FIRST (so we can include it in JSON)
+        bool stale = true;
+        {
+            std::lock_guard<std::mutex> lock(g_vitalsMutex);
+            if (g_hasWifiVitals) {
+                auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - g_lastRx
+                ).count();
+                // Right after a POST -> age_ms is tiny -> stale=false
+                std::cout << "[vitals] age_ms=" << age_ms
+                        << " hasWifi=" << (g_hasWifiVitals ? 1 : 0) << std::endl;
+                // After ~3 seconds -> stale=true
+                stale = (age_ms > 3000);
+            }
+        }
+
+
+        // 3) risks (using the chosen vitals)
+        int risk_hr   = (vcopy.HR   < 0) ? 0 : calc_HR_risk(vcopy.HR);
+        int risk_spo2 = (vcopy.SpO2 < 0) ? 0 : calc_SpO2_risk(vcopy.SpO2);
+        int risk_temp = (vcopy.Temp < 0) ? 0 : calc_Temp_risk(vcopy.Temp);
+        int risk_resp = (vcopy.Resp < 0) ? 0 : calc_Resp_risk(vcopy.Resp);
+        int risk_bp   = (vcopy.BP_sys < 0 || vcopy.BP_dia < 0) ? 0 : calc_BP_risk(vcopy.BP_sys, vcopy.BP_dia);
+
+
+        // 4) build JSON (make sure commas are correct!)
         std::string json = "{";
-        json += "\"hr\":"   + std::to_string(v.HR)     + ",";
-        json += "\"spo2\":" + std::to_string(v.SpO2)   + ",";
-        json += "\"temp\":" + std::to_string(v.Temp)   + ",";
-        json += "\"resp\":" + std::to_string(v.Resp)   + ",";
-        json += "\"sys\":"  + std::to_string(v.BP_sys) + ",";
-        json += "\"dia\":"  + std::to_string(v.BP_dia) + ",";
+        json += "\"hr\":"   + std::to_string(vcopy.HR)     + ",";
+        json += "\"spo2\":" + std::to_string(vcopy.SpO2)   + ",";
+        json += "\"temp\":" + std::to_string(vcopy.Temp)   + ",";
+        json += "\"resp\":" + std::to_string(vcopy.Resp)   + ",";
+        json += "\"sys\":"  + std::to_string(vcopy.BP_sys) + ",";
+        json += "\"dia\":"  + std::to_string(vcopy.BP_dia) + ",";
 
-        json += "\"risk_hr\":"   + std::to_string(risk["HR"])   + ",";
-        json += "\"risk_spo2\":" + std::to_string(risk["SpO2"]) + ",";
-        json += "\"risk_temp\":" + std::to_string(risk["Temp"]) + ",";
-        json += "\"risk_resp\":" + std::to_string(risk["Resp"]) + ",";
-        json += "\"risk_bp\":"   + std::to_string(risk["BP"]);
+        json += "\"risk_hr\":"   + std::to_string(risk_hr)   + ",";
+        json += "\"risk_spo2\":" + std::to_string(risk_spo2) + ",";
+        json += "\"risk_temp\":" + std::to_string(risk_temp) + ",";
+        json += "\"risk_resp\":" + std::to_string(risk_resp) + ",";
+        json += "\"risk_bp\":"   + std::to_string(risk_bp)   + ",";
+
+        json += "\"stale\":" + std::string(stale ? "true" : "false");
+        json += ",\"build\":\"vitals_fix_1\"";
         json += "}";
 
+
         res.set_content(json, "application/json; charset=utf-8");
+    });
+
+//---------------------------------------------------------
+
+    svr.Post("/api/ingest", [&](const httplib::Request& req, httplib::Response& res) {
+        const std::string& body = req.body;
+
+        // IMPORTANT: your tiny JSON parser cannot parse null.
+        // So for tonight: send -1 for missing values (or omit keys).
+        // Tomorrow: we can upgrade to handle "null" properly OR just send -1 from ESP32.
+        Vitals v;
+
+        v.HR     = (int)jsonGetNumber(body, "HR",   jsonGetNumber(body, "hr",   0));
+        v.SpO2   = (int)jsonGetNumber(body, "SpO2", jsonGetNumber(body, "spo2", 0));
+        v.Temp   = (float)jsonGetNumber(body, "Temp", jsonGetNumber(body, "temp", 0));
+        v.Resp   = (int)jsonGetNumber(body, "Resp", jsonGetNumber(body, "resp", 0));
+        v.BP_sys = (int)jsonGetNumber(body, "BP_sys", jsonGetNumber(body, "sys", 0));
+        v.BP_dia = (int)jsonGetNumber(body, "BP_dia", jsonGetNumber(body, "dia", 0));
+
+        {
+            std::lock_guard<std::mutex> lock(g_vitalsMutex);
+            g_latestFromWifi = v;
+            g_hasWifiVitals = true;
+            g_lastRx = std::chrono::steady_clock::now();
+        }
+
+        res.set_content("OK", "text/plain; charset=utf-8");
     });
 
     // ---------------------------------------------------------
