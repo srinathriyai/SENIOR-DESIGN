@@ -9,6 +9,10 @@ bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 // BP sensor status
 bool PS_check_pass = false;
 
+//LLM data output timing
+unsigned long lastLLMOutput = 0;
+const unsigned long LLM_OUTPUT_INTERVAL = 5000;  //output every 5 seconds
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -100,15 +104,48 @@ void loop() {
     }
     lastD6State = currentD6;
     
-    // Update HR and TEMP sensors (non-blocking)
+    //update HR and TEMP sensors (non-blocking)
     TEMP_update();
     HR_update();
 
+
+    //LLM DATA OUTPUT output every 5 seconds to avoid spam
+    if (millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL) {
+        lastLLMOutput = millis();
+        
+        float currentHR = HR_getMeasurement();
+        float currentO2 = O2_getMeasurement();
+        float currentTemp = TEMP_getMeasurement();
+        
+        //JSON format for LLM to parse
+        Serial.println("\n===== LLM DATA =====");
+        Serial.println("{");
+        Serial.print("  \"heartRate\": ");
+        Serial.print(currentHR, 1);
+        Serial.println(",");
+        Serial.print("  \"spo2\": ");
+        Serial.print(currentO2, 1);
+        Serial.println(",");
+        Serial.print("  \"temperature\": ");
+        Serial.print(currentTemp, 1);
+        Serial.println(",");
+        Serial.print("  \"timestamp\": ");
+        Serial.println(millis());
+        Serial.println("}");
+        Serial.println("====================\n");
+        
+        //error checking
+        if (currentHR == 0 && currentO2 == 0 && currentTemp == 0) {
+            Serial.println("WARNING: No measurements available yet");
+        }
+    }
+    //=============================================================================
+
     delay(10);
 
-    // Sending to LLM
-    if (bpSensorReady) {
-        live.BP_sys = systolic; 
-        live.BP_dia = diastolic;
+    //sending to LLM
+    if(PS_check_pass){
+        //live.BP_sys = systolic; 
+        //live.BP_dia = diastolic;
     }
 }
