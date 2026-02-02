@@ -4,24 +4,24 @@
 #include "BP.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include "esp_wpa2.h"
+//#include "esp_wpa2.h"
 #include <ArduinoJson.h>
 
 //WiFi credentials - CHANGE THESE
 //regular WiFi:
-const char* WIFI_SSID = "UCR-GUEST";
-const char* WIFI_PASSWORD = "Rg#3EAOp";
+const char* WIFI_SSID = "iPhone";
+const char* WIFI_PASSWORD = "milliondollars";
 
 //WPA2-Enterprise  eduroam config:
 //uncomment
-// const char* EAP_IDENTITY = "apapi001@ucr.edu";
-// const char* EAP_USERNAME = "apapi001";  
-// const char* EAP_PASSWORD = "password";
+//const char* EAP_IDENTITY = "apapi001@ucr.edu";
+//const char* EAP_USERNAME = "apapi001@ucr.edu";  
+//const char* EAP_PASSWORD = "password";
 
-// PC server address - CHANGE THIS to your PC's local IP
-const char* PC_SERVER_URL = "http://10.14.9.237:8000/api/vitals";  // Find your PC's IP using ipconfig/ifconfig
+//PC server address - CHANGE to PC's local IP
+const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/vitals";  //IP using ipconfig/ifconfig
 
-// Button tracking for HR/TEMP system
+//Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 
 // BP sensor status
@@ -33,9 +33,8 @@ const unsigned long LLM_OUTPUT_INTERVAL = 5000;  // Send to PC every 5 seconds
 
 void connectWiFi() {
     Serial.print("Connecting to WiFi");
-    WiFi.disconnect(true);
     delay(100);
-
+    WiFi.disconnect(true);
     WiFi.mode(WIFI_STA);
     //regular WiFi (WPA/WPA2-PSK): change definitions not these
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -43,11 +42,12 @@ void connectWiFi() {
     //WPA2-Enterprise (uncomment if using campus eduroam):
     // WiFi.disconnect(true);
     // WiFi.mode(WIFI_STA);
-    // esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
-    // esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
-    // esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
-    // esp_wifi_sta_wpa2_ent_enable();
-    // WiFi.begin(WIFI_SSID);
+    //esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
+    //esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
+    //esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
+
+    //esp_wifi_sta_wpa2_ent_enable();
+    //WiFi.begin(WIFI_SSID);
     
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -62,7 +62,7 @@ void connectWiFi() {
         Serial.println(WiFi.localIP());
     } else {
         Serial.println("\nWiFi connection failed!");
-        WiFi.status();
+        Serial.println(WiFi.status());
     }
 }
 
@@ -70,12 +70,11 @@ void setup(){
     Serial.begin(115200);
     delay(2000);
     Serial.println("SETUP START");
-    Serial.println();
-    Serial.print("Reset reason: ");
-    Serial.println(esp_reset_reason());
 
     // Connect to WiFi FIRST
     connectWiFi();
+    WiFi.setSleep(false);
+
     delay(200);
 
     //=============================================================================
@@ -133,16 +132,18 @@ void setup(){
     Serial.println("OR press D4 for HR only");
     Serial.println("BP uses A0 button (from BP.h code)");
     Serial.println("\nNOTE: D2 is used by BP system (in4), don't use for buttons!");
+    
 }
 
 void loop(){
+    
     //=============================================================================
     // BP TASKS - Run continuously if sensor is ready
     //=============================================================================
     if(PS_check_pass){
         currentmillis = millis();
-        for (unsigned int i = 0; i < NUM_TASKS; i++) {
-            if (currentmillis - tasks[i].elapsedTime >= tasks[i].period) {
+        for(unsigned int i = 0; i < NUM_TASKS; i++) {
+            if(currentmillis - tasks[i].elapsedTime >= tasks[i].period) {
                 tasks[i].state = tasks[i].TickFct(tasks[i].state);
                 tasks[i].elapsedTime = currentmillis;
             }
@@ -167,56 +168,69 @@ void loop(){
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
-            WiFi.mode(WIFI_OFF);
-        delay(50);
+    WiFi.mode(WIFI_OFF);
+    delay(50);
     HR_update();
     WiFi.mode(WIFI_STA);
 
 
-    //LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
-    if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
-        lastLLMOutput = millis();
-        
-        if(WiFi.status() == WL_CONNECTED){
-            float currentHR = HR_getMeasurement();
-            float currentO2 = O2_getMeasurement();
+//=============================================================================
+// LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
+//=============================================================================
+if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
+    lastLLMOutput = millis();
+
+    //HR measurement not working while wifi is trying to send to LLM, will need to workaround?
+    if(HR_isActive()){
+        Serial.println("LLM send skipped - HR sampling active");
+    }
+    else{
+        //if WiFi is connected, send data
+        if (WiFi.status() == WL_CONNECTED) {
+
+            float currentHR   = HR_getMeasurement();
+            float currentO2   = O2_getMeasurement();
             float currentTemp = TEMP_getMeasurement();
-            
-            //JSON payload  sending raw vitals, PC calculates risks
+
             StaticJsonDocument<256> doc;
-            doc["HR"] = currentHR;
-            doc["SpO2"] = currentO2;
-            doc["Temp"] = currentTemp;
-            doc["Resp"] = 0;  //placeholder - no respiratory sensor yet
-           // doc["BP_sys"] = systolic;  
-           // doc["BP_dia"] = diastolic;  //not working atm
-            
+            doc["HR"]    = currentHR;
+            doc["SpO2"]  = currentO2;
+            doc["Temp"]  = currentTemp;
+            doc["Resp"]  = 0;   // placeholder
+            doc["BP_sys"] = 0;//systolic; //placeholder
+            doc["BP_dia"] = 0;//diastolic; //placeholder
+
             String jsonString;
             serializeJson(doc, jsonString);
-            
-            //send HTTP POST to PC server
+
             HTTPClient http;
             http.setTimeout(3000);
             http.begin(PC_SERVER_URL);
             http.addHeader("Content-Type", "application/json");
-            
+
             int httpCode = http.POST(jsonString);
-            
+
             if(httpCode > 0){
-                Serial.printf("Data sent to PC! HTTP code: %d\n", httpCode);
+                Serial.printf("LLM data sent (HTTP %d)\n", httpCode);
             } 
             else{
-                //Serial.printf("Error sending data: %s\n", http.errorToString(httpCode).c_str());
+                Serial.println("LLM send failed");
             }
-            Serial.flush();
+
             http.end();
-        } 
+        }
+        //if WiFi disconnected, retry(every 20s to avoid spam)
         else{
-            Serial.println("WiFi disconnected - reconnecting...");
-            connectWiFi();
+            static unsigned long lastWiFiRetry = 0;
+            if(millis() - lastWiFiRetry > 20000){
+                lastWiFiRetry = millis();
+                Serial.println("WiFi disconnected - attempting reconnect...");
+                connectWiFi();
+            }
         }
     }
-    //=============================================================================
+}
+
 
     delay(10);
 
@@ -225,4 +239,5 @@ void loop(){
         //live.BP_sys = systolic; 
         //live.BP_dia = diastolic;
     }
+        
 }
