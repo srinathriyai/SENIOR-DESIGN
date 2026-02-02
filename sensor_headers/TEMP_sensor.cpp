@@ -26,6 +26,9 @@ static float ambientSum = 0;
 static float objectSum = 0;
 static int sampleCount = 0;
 
+float calibratedTemp = 0;
+float currentTemp = 1;          //value grabbed from main for LLM 
+
 void TEMP_init() {
     Serial.println("mlx90614 temp reader starting...");
     
@@ -63,86 +66,63 @@ void TEMP_startMeasurement(){
     sampleCount = 0;
 }
 
+float TEMP_getMeasurement(){
+    if(calibratedTemp == 0){
+        currentTemp = 0;
+    }
+    else currentTemp = calibratedTemp;
+
+    return currentTemp;
+}
+
 void TEMP_update() {
-    if(!sensorReady){       //return if not ready
-        return;
-    }
-    
-    //check button for press
-    bool currentButtonState = digitalRead(BUTTON_PIN);           //will be removed later
-    if(lastButtonState == HIGH && currentButtonState == LOW){       //button bounce
-        delay(50);
-        TEMP_startMeasurement();
-    }
-    lastButtonState = currentButtonState;       
-    
-    //handle non-blocking measurement
-    if (!measuring){
-        return;
-    }
-    
+    if(!sensorReady || !measuring) return;
+
     unsigned long now = millis();
-    
-    //take sample every SAMPLE_DELAY ms, set in definitions
-    if(now - lastSampleTime >= SAMPLE_DELAY) {
+    if(now - lastSampleTime >= SAMPLE_DELAY){
         lastSampleTime = now;
-        
+
         float ambientC = mlx.readAmbientTempC();
         float objectC = mlx.readObjectTempC();
-        
-        //converting to F
-        float ambientF = ambientC * 9.0 / 5.0 + 32;    
-        float objectF = objectC * 9.0 / 5.0 + 32;
-        
+
+        if(isnan(ambientC) || isnan(objectC)) {
+            Serial.println("NaN reading, skipping");
+            return;
+        }
+
+        float ambientF = ambientC * 9.0 / 5.0 + 32.0;
+        float objectF = objectC * 9.0 / 5.0 + 32.0;
+
         ambientSum += ambientF;
         objectSum += objectF;
         sampleCount++;
 
-        //printing for debugging mainly, but can be changed to be apart of the display?
-        Serial.print("ambient ="); Serial.print(ambientF); Serial.print("*F\t");    //outputs can be changed/removed
-        Serial.print("object ="); Serial.print(objectF); Serial.println("*F");      //maybe only keep the object, aka human as output
+        Serial.print("ambient ="); Serial.print(ambientF); Serial.print("*F\t");
+        Serial.print("object ="); Serial.print(objectF); Serial.println("*F");
     }
-    
-    //check if measurement complete
-    if(now - measureStartTime >= SAMPLE_TIME){
-        measuring = false;      //stop measurement active state
-        
+
+    if(now - measureStartTime >= SAMPLE_TIME && sampleCount > 0){
+        measuring = false;
+
         ambientAvg = ambientSum / sampleCount;
-        objectAvg = objectSum / sampleCount;        //get average values
-        
-        //smart calibration: adjust readings outside normal range (96-103°F) to 98°F baseline while preserving decimal variance
-        float calibratedTemp = objectAvg;
-        float decimalPart = objectAvg - floor(objectAvg);       //extract decimal to keep natural variance
-        
+        objectAvg = objectSum / sampleCount;
 
-        //if between 96-103°F, use actual reading (normal range)
-        //if super large values flag sensor needs reset
-        if (objectAvg < 80.0) {
-            Serial.println("NOTE: Reading abnormal. RESET device and test again.");
-        } 
-        else if (objectAvg < 96.8){
-            calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
-            Serial.println("NOTE: Reading below 96°F, adjusted to 98°F range");
-        } 
-        else if(objectAvg > 103.0){
-            calibratedTemp = 98.0 + decimalPart;        //shift to 98 range but keep decimal
-            Serial.println("NOTE: Reading above 103°F, adjusted to 98°F range");
+        //value calibration
+        if(objectAvg < 80.0 || objectAvg > 120.0) {
+            Serial.println("ERROR: Reading abnormal. Check sensor.");
+            calibratedTemp = 0;
+        } else if(objectAvg < 96.0) {
+            calibratedTemp = 96.0 + (objectAvg - floor(objectAvg));
+        } else if(objectAvg > 103.0) {
+            calibratedTemp = 103.0 + (objectAvg - floor(objectAvg));
+        } else {
+            calibratedTemp = objectAvg;
         }
-        else if(objectAvg > 130.0){
-            Serial.println("NOTE: Reading abnormal. RESET device and test again.");
-        }
-        
 
-        
-        Serial.println("====================================");
-        Serial.print("average ambient temp ="); Serial.print(ambientAvg); Serial.println("*F");
-        Serial.print("raw object temp ="); Serial.print(objectAvg); Serial.println("*F");
-        if (calibratedTemp != objectAvg) {
-            Serial.print("calibrated object temp ="); Serial.print(calibratedTemp); Serial.println("*F");
-        }
-        Serial.println("====================================");
-        
-        objectAvg = calibratedTemp;     //store calibrated value as final result
+        Serial.println("=== TEMP MEASUREMENT COMPLETE ===");
+        Serial.print("ambientAvg = "); Serial.println(ambientAvg);
+        Serial.print("raw objectAvg = "); Serial.println(objectAvg);
+        Serial.print("calibratedTemp = "); Serial.println(calibratedTemp);
     }
 }
 
