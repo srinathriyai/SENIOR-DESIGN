@@ -30,27 +30,27 @@ float calibratedTemp = 0;
 float currentTemp = 1;          //value grabbed from main for LLM 
 
 void TEMP_init() {
-    Serial.println("mlx90614 temp reader starting...");
+    //Serial.println("mlx90614 temp reader starting...");   used for debugging, commented out for now
     
     pinMode(BUTTON_PIN, INPUT_PULLUP);      //using button atm for triggering, will change
     
     //initialize SEPARATE I2C bus for temp sensor on D8/D9, samples say NaN otherwise
-    I2C_temp.begin(TEMP_SDA, TEMP_SCL, 100000); 
+    I2C_temp.begin(TEMP_SDA, TEMP_SCL, 50000); 
     delay(100);
     
-    Serial.println("Attempting MLX sensor on separate I2C (D8/D9)...");
+    //Serial.println("Attempting MLX sensor on separate I2C (D8/D9)...");       used for debugging, commented out
     if (!mlx.begin(0x5A, &I2C_temp)){                   //check for sensor working, mainly for bebugging but can probably keep later
         Serial.println("ERROR: MLX sensor failed");
         sensorReady = false;        //state its not working
         return;
     }
     
-    Serial.println("MLX sensor connected");
+    //Serial.println("MLX sensor connected");   used for debugging, commented out now
     mlx.writeEmissivity(0.95);              //based on human body, testing comparing to apple watch to get closer
     delay(100);
     
     sensorReady = true;
-    Serial.println("Temperature sensor ready. Press D2 button.");   //button might change etc etc
+    //Serial.println("Temperature sensor ready. Press D2 button.");   not really valid anymore, but keep for debugging etc
 }
 
 void TEMP_startMeasurement(){
@@ -85,8 +85,8 @@ void TEMP_update() {
         float ambientC = mlx.readAmbientTempC();
         float objectC = mlx.readObjectTempC();
 
-        if(isnan(ambientC) || isnan(objectC)) {
-            Serial.println("NaN reading, skipping");
+        if(isnan(ambientC) || isnan(objectC) || ambientC < 0 || ambientC > 100 || objectC < 0 || objectC > 110){
+            Serial.println("WARN: Invalid TEMP reading, skipping sample");
             return;
         }
 
@@ -112,9 +112,9 @@ void TEMP_update() {
             Serial.println("ERROR: Reading abnormal. Check sensor.");
             calibratedTemp = 0;
         } else if(objectAvg < 96.0) {
-            calibratedTemp = 96.0 + (objectAvg - floor(objectAvg));
+            calibratedTemp = 98.0 + (objectAvg - floor(objectAvg));
         } else if(objectAvg > 103.0) {
-            calibratedTemp = 103.0 + (objectAvg - floor(objectAvg));
+            calibratedTemp = 101.0 + (objectAvg - floor(objectAvg));
         } else {
             calibratedTemp = objectAvg;
         }
