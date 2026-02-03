@@ -168,15 +168,11 @@ void loop(){
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
-    WiFi.mode(WIFI_OFF);
-    delay(50);
     HR_update();
-    WiFi.mode(WIFI_STA);
 
 
 //=============================================================================
-// LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
-//=============================================================================
+//LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
 if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
     lastLLMOutput = millis();
 
@@ -202,6 +198,11 @@ if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
 
             String jsonString;
             serializeJson(doc, jsonString);
+
+             // ----- DEBUG PRINT -----
+            Serial.println("=== DEBUG: JSON TO BE SENT ===");
+            Serial.println(jsonString);
+            Serial.println("================================");
 
             HTTPClient http;
             http.setTimeout(3000);
