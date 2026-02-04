@@ -56,6 +56,7 @@ uint32_t lastBeatTime = 0;  // Timestamp of last detected beat
 //raw beat intervals can vary ±10 BPM due to breathing, movement, etc causing alot of variability
 //exponential moving average smooths these variations, from common past uses on google
 float bpmFiltered = 0;           //smoothed BPM value
+float currentHR = 1;            //value grabbed from main for LLM result
 const float BPM_ALPHA = 0.3f;    //smoothing factor: 0.3 = responsive but smooth, too high before made response slower
 uint8_t bpmCount = 0;            //tracking number of valid beats, determined in function later
 
@@ -66,6 +67,7 @@ uint16_t acSampleCount = 0;         //no. of samples taken, absolute values late
 
 //smooth spO2 values globals
 float spo2Smoothed = 0;           //smoothed oxygenpercentage
+float currentO2 = 1;            //value grabbed from main for LLM
 const float SPO2_ALPHA = 0.4f;      //smoothing factor,slightly higher than BPM for faster stabilization
 
 //button handling globals
@@ -83,7 +85,7 @@ float minRedAC = 0;          //minimum Red AC value, during measuring
                                 //range (max - min) indicates signal strength, from datasheet info
 
 void HR_init() {                    //Initializing
-    Serial.println("HR: init");
+    //Serial.println("HR: init");  uncomment for debugging, but should be fine now
 
     //button configuration, for debugging/testing will change later
     pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -115,8 +117,8 @@ void HR_init() {                    //Initializing
     particleSensor.setPulseAmplitudeRed(60);
     particleSensor.setPulseAmplitudeIR(60);
 
-    Serial.println("HR: MAX30102 ready");
-    Serial.println("Press button to start measurement...");
+    //Serial.println("HR: MAX30102 ready");                    used for debugging, commented out for now
+    //Serial.println("Press button to start measurement...");
 }
 
 void HR_startMeasurement(){ 
@@ -126,6 +128,23 @@ void HR_startMeasurement(){
     }
 }
 
+float HR_getMeasurement(){
+    if(bpmFiltered == 0){
+        currentHR = 0;
+    }
+    else currentHR = bpmFiltered;
+
+    return currentHR;
+}
+
+float O2_getMeasurement(){
+    if(spo2Smoothed == 0){
+        currentO2 = 0;
+    }
+    else currentO2 = spo2Smoothed;
+
+    return currentO2;
+}
 
 //main loop ___ called repeatedly from main loop: for button handling, sampling and beat detection
 void HR_update(){
@@ -226,6 +245,7 @@ void HR_update(){
 
         //Output, can change later on and make different for display
         //print every 2 second for debuggin atm
+        /*
         if(diagnosticMode && (now - lastDiagnostic >= 2000)){ 
             Serial.print("IR AC: ");
             Serial.print(minIRAC, 0);
@@ -239,7 +259,7 @@ void HR_update(){
             Serial.println(bpmCount);
             lastDiagnostic = now;
         }
-
+*/
         //Making threshold adaptive to adjust for detection, based on read signal strength 
         //threshold = 30% of signal range works well across different people, autoshapes to weak/strong
         float signalRange = maxIRAC - minIRAC;
@@ -323,6 +343,7 @@ void HR_update(){
             Serial.println("\n========== MEASUREMENT COMPLETE ==========");
             Serial.print("Total beats detected: ");
             Serial.println(bpmCount);
+            /*
             Serial.print("IR AC range: ");
             Serial.print(minIRAC, 0);
             Serial.print(" to ");
@@ -331,9 +352,9 @@ void HR_update(){
             Serial.print(minRedAC, 0);
             Serial.print(" to ");
             Serial.println(maxRedAC, 0);
+            */
 
             //oxygen calcuation (spO2)
-            
             if(bpmCount >= 5){        //min5 beats for reliable measurement
                 if(acSampleCount > 0){
                     float irACAvg = irACSum / acSampleCount;    //average AC values
@@ -356,11 +377,17 @@ void HR_update(){
                         spo2Smoothed = SPO2_ALPHA*spo2 + (1.0f - SPO2_ALPHA)*spo2Smoothed; //take 40% of old spO2 and the rest new to smooth
                     }
 
+                    //if(spo2Smoothed < 90){
+                    //    spo2Smoothed = 0;
+                    //}
+
                     //output data
                     Serial.print("Average BPM: ");
                     Serial.println(bpmFiltered, 1);
+                    /*
                     Serial.print("R-value: ");
                     Serial.println(R, 3);
+                    */
                     Serial.print("Calculated SpO2: ");
                     Serial.print(spo2, 1);
                     Serial.println("%");
