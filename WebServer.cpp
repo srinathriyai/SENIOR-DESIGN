@@ -281,9 +281,10 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         json += "\"risk_resp\":" + std::to_string(risk_resp) + ",";
         json += "\"risk_bp\":"   + std::to_string(risk_bp)   + ",";
 
-        json += "\"stale\":" + std::string(stale ? "true" : "false");
-        json += ",\"build\":\"vitals_fix_1\"";
+        json += "\"stale\":"     + std::string(stale ? "true" : "false") + ",";
+        json += "\"build\":\"vitals_fix_1\"";
         json += "}";
+
 
 
         res.set_content(json, "application/json; charset=utf-8");
@@ -293,19 +294,21 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
     svr.Post("/api/ingest", [&](const httplib::Request& req, httplib::Response& res) {
         const std::string& body = req.body;
+        
+        // See ESP32 packets printing in terminal
+        std::cout << "[ingest] " << body << std::endl;
 
-        // IMPORTANT: your tiny JSON parser cannot parse null.
-        // So for tonight: send -1 for missing values (or omit keys).
-        // Tomorrow: we can upgrade to handle "null" properly OR just send -1 from ESP32.
+        // IMPORTANT: tiny JSON parser cannot parse null
+        // So for 1/31/26: send -1 for missing values (or omit keys)
         Vitals v;
 
-        v.HR     = (int)jsonGetNumber(body, "HR",   jsonGetNumber(body, "hr",   0));
-        v.SpO2   = (int)jsonGetNumber(body, "SpO2", jsonGetNumber(body, "spo2", 0));
-        v.Temp   = (float)jsonGetNumber(body, "Temp", jsonGetNumber(body, "temp", 0));
-        v.Resp   = (int)jsonGetNumber(body, "Resp", jsonGetNumber(body, "resp", 0));
-        v.BP_sys = (int)jsonGetNumber(body, "BP_sys", jsonGetNumber(body, "sys", 0));
-        v.BP_dia = (int)jsonGetNumber(body, "BP_dia", jsonGetNumber(body, "dia", 0));
-
+        //  UI/risk logic plan: -1 = not measured
+        v.HR     = (int)jsonGetNumber(body, "HR",   jsonGetNumber(body, "hr",   -1));
+        v.SpO2   = (int)jsonGetNumber(body, "SpO2", jsonGetNumber(body, "spo2", -1));
+        v.Temp   = (float)jsonGetNumber(body, "Temp", jsonGetNumber(body, "temp", -1));
+        v.Resp   = (int)jsonGetNumber(body, "Resp", jsonGetNumber(body, "resp", -1));
+        v.BP_sys = (int)jsonGetNumber(body, "BP_sys", jsonGetNumber(body, "sys", -1));
+        v.BP_dia = (int)jsonGetNumber(body, "BP_dia", jsonGetNumber(body, "dia", -1));
         {
             std::lock_guard<std::mutex> lock(g_vitalsMutex);
             g_latestFromWifi = v;
@@ -355,6 +358,9 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
         // --- Call LLM (your LLM.cpp should return plain text content) ---
         std::string diagnosis = sendToLLMChat(prompt);
+
+        //debug: print raw body
+        std::cout << "RAW BODY:\n" << body << std::endl;
 
         res.set_content(diagnosis, "text/plain; charset=utf-8");
     });
@@ -979,6 +985,9 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             };
 
                             try {
+                                console.log("DX payload:", payload);
+                                alert(JSON.stringify(payload, null, 2));
+
                                 const r = await fetch("/api/diagnosis", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },

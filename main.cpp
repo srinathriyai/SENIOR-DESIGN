@@ -9,8 +9,8 @@
 
 //WiFi credentials - CHANGE THESE
 //regular WiFi:
-const char* WIFI_SSID = "UCR-GUEST";
-const char* WIFI_PASSWORD = "Rg#3EAOp";
+const char* WIFI_SSID = "iPhone";
+const char* WIFI_PASSWORD = "milliondollars";
 
 //WPA2-Enterprise  eduroam config:
 //uncomment
@@ -19,7 +19,10 @@ const char* WIFI_PASSWORD = "Rg#3EAOp";
 // const char* EAP_PASSWORD = "password";
 
 // PC server address - CHANGE THIS to your PC's local IP
-const char* PC_SERVER_URL = "http://10.14.9.237:8000/api/vitals";  // Find your PC's IP using ipconfig/ifconfig
+
+// *******PC server expects ESP32 packets at api/ingest
+const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest"; 
+
 
 // Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -60,9 +63,12 @@ void connectWiFi() {
         Serial.println("\nWiFi connected!");
         Serial.print("ESP32 IP: ");
         Serial.println(WiFi.localIP());
+        Serial.print("Gateway: ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("Subnet: ");
+        Serial.println(WiFi.subnetMask());
     } else {
         Serial.println("\nWiFi connection failed!");
-        WiFi.status();
     }
 }
 
@@ -167,10 +173,10 @@ void loop(){
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
-            WiFi.mode(WIFI_OFF);
+            //WiFi.mode(WIFI_OFF); //DOES THIS MAKE POSTS STALE FOREVER??
         delay(50);
     HR_update();
-    WiFi.mode(WIFI_STA);
+   // WiFi.mode(WIFI_STA);
 
 
     //LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
@@ -187,12 +193,18 @@ void loop(){
             doc["HR"] = currentHR;
             doc["SpO2"] = currentO2;
             doc["Temp"] = currentTemp;
-            doc["Resp"] = 0;  //placeholder - no respiratory sensor yet
+
+            //PC SERVER SET MISSING = -1
+            doc["Resp"] = -1;  //placeholder - no respiratory sensor yet
            // doc["BP_sys"] = systolic;  
            // doc["BP_dia"] = diastolic;  //not working atm
             
             String jsonString;
             serializeJson(doc, jsonString);
+            
+            //to see whats being sent
+            Serial.print("POST -> ");
+            Serial.println(jsonString);
             
             //send HTTP POST to PC server
             HTTPClient http;
@@ -202,16 +214,18 @@ void loop(){
             
             int httpCode = http.POST(jsonString);
             
-            if(httpCode > 0){
-                Serial.printf("Data sent to PC! HTTP code: %d\n", httpCode);
-            } 
-            else{
-                //Serial.printf("Error sending data: %s\n", http.errorToString(httpCode).c_str());
+            // MORE DEBUG (critical for you)
+            Serial.printf("HTTP code: %d\n", httpCode);
+            if (httpCode > 0) {
+                String resp = http.getString();
+                Serial.print("Response: ");
+                Serial.println(resp);
+            } else {
+                Serial.println("POST failed (timeout / connection / DNS)");
             }
-            Serial.flush();
             http.end();
-        } 
-        else{
+            Serial.flush();
+        }else{
             Serial.println("WiFi disconnected - reconnecting...");
             connectWiFi();
         }
