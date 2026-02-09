@@ -5,7 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 //#include "esp_wpa2.h"
-#include <ArduinoJson.h>
+//#include <ArduinoJson.h>
 
 //WiFi credentials - CHANGE THESE
 //regular WiFi:
@@ -18,16 +18,8 @@ const char* WIFI_PASSWORD = "milliondollars";
 //const char* EAP_USERNAME = "apapi001@ucr.edu";  
 //const char* EAP_PASSWORD = "password";
 
-<<<<<<< HEAD
-// PC server address - CHANGE THIS to your PC's local IP
-
-// *******PC server expects ESP32 packets at api/ingest
-const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest"; 
-
-=======
 //PC server address - CHANGE to PC's local IP
-const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/vitals";  //IP using ipconfig/ifconfig
->>>>>>> 5f1efb955c1e5de00a4175925e10e96c03d886e2
+const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest";  //IP using ipconfig/ifconfig
 
 //Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -74,10 +66,7 @@ void connectWiFi() {
         Serial.println(WiFi.subnetMask());
     } else {
         Serial.println("\nWiFi connection failed!");
-<<<<<<< HEAD
-=======
         Serial.println(WiFi.status());
->>>>>>> 5f1efb955c1e5de00a4175925e10e96c03d886e2
     }
 }
 
@@ -149,7 +138,7 @@ void setup(){
     Serial.println("\nNOTE: D2 is used by BP system (in4), don't use for buttons!");
     
 }
-
+//=============================================================================
 void loop(){
     
     //=============================================================================
@@ -183,14 +172,7 @@ void loop(){
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
-<<<<<<< HEAD
-            //WiFi.mode(WIFI_OFF); //DOES THIS MAKE POSTS STALE FOREVER??
-        delay(50);
     HR_update();
-   // WiFi.mode(WIFI_STA);
-=======
-    HR_update();
->>>>>>> 5f1efb955c1e5de00a4175925e10e96c03d886e2
 
 
 //=============================================================================
@@ -211,25 +193,6 @@ if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
             float currentTemp = TEMP_getMeasurement();
 
             StaticJsonDocument<256> doc;
-<<<<<<< HEAD
-            doc["HR"] = currentHR;
-            doc["SpO2"] = currentO2;
-            doc["Temp"] = currentTemp;
-
-            //PC SERVER SET MISSING = -1
-            doc["Resp"] = -1;  //placeholder - no respiratory sensor yet
-           // doc["BP_sys"] = systolic;  
-           // doc["BP_dia"] = diastolic;  //not working atm
-            
-            String jsonString;
-            serializeJson(doc, jsonString);
-            
-            //to see whats being sent
-            Serial.print("POST -> ");
-            Serial.println(jsonString);
-            
-            //send HTTP POST to PC server
-=======
             doc["HR"]    = currentHR;
             doc["SpO2"]  = currentO2;
             doc["Temp"]  = currentTemp;
@@ -245,36 +208,22 @@ if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
             Serial.println(jsonString);
             Serial.println("================================");
 
->>>>>>> 5f1efb955c1e5de00a4175925e10e96c03d886e2
             HTTPClient http;
             http.setTimeout(3000);
             http.begin(PC_SERVER_URL);
             http.addHeader("Content-Type", "application/json");
 
             int httpCode = http.POST(jsonString);
-<<<<<<< HEAD
-            
-            // MORE DEBUG (critical for you)
-            Serial.printf("HTTP code: %d\n", httpCode);
-            if (httpCode > 0) {
-                String resp = http.getString();
-                Serial.print("Response: ");
-                Serial.println(resp);
-            } else {
-                Serial.println("POST failed (timeout / connection / DNS)");
-            }
-            http.end();
-            Serial.flush();
-        }else{
-            Serial.println("WiFi disconnected - reconnecting...");
-            connectWiFi();
-=======
 
-            if(httpCode > 0){
-                Serial.printf("LLM data sent (HTTP %d)\n", httpCode);
-            } 
-            else{
-                Serial.println("LLM send failed");
+            // ADDED THE FOLLOWING DEBUG PRINTS TO CHECK HTTP RESPONSE
+            //http.getString() only works after the request (POST) and before calling hhtp.end()
+            Serial.printf("HTTP %d\n", httpCode);
+            if (httpCode > 0) {
+                Serial.print("Response body: ");
+                Serial.println(http.getString());
+            } else {
+                Serial.print("POST failed, error: ");
+                Serial.println(http.errorToString(httpCode));  
             }
 
             http.end();
@@ -287,7 +236,6 @@ if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
                 Serial.println("WiFi disconnected - attempting reconnect...");
                 connectWiFi();
             }
->>>>>>> 5f1efb955c1e5de00a4175925e10e96c03d886e2
         }
     }
 }
