@@ -79,8 +79,6 @@ void setup(){
     connectWiFi();
     WiFi.setSleep(false);
 
-    delay(200);
-
     //=============================================================================
     // BP SETUP
     //=============================================================================
@@ -127,7 +125,6 @@ void setup(){
     //=============================================================================
     
     //initialize HR and TEMP after BP (to avoid I2C conflicts)
-    delay(200);  
     HR_init();
     TEMP_init();
     
@@ -138,9 +135,8 @@ void setup(){
     Serial.println("\nNOTE: D2 is used by BP system (in4), don't use for buttons!");
     
 }
-//=============================================================================
+
 void loop(){
-    
     //=============================================================================
     // BP TASKS - Run continuously if sensor is ready
     //=============================================================================
@@ -175,78 +171,69 @@ void loop(){
     HR_update();
 
 
-//=============================================================================
-//LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
-if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
-    lastLLMOutput = millis();
-
-    //HR measurement not working while wifi is trying to send to LLM, will need to workaround?
-    if(HR_isActive()){
-        Serial.println("LLM send skipped - HR sampling active");
-    }
-    else{
-        //if WiFi is connected, send data
-        if (WiFi.status() == WL_CONNECTED) {
-
-            float currentHR   = HR_getMeasurement();
-            float currentO2   = O2_getMeasurement();
-            float currentTemp = TEMP_getMeasurement();
-
-            StaticJsonDocument<256> doc;
-            doc["HR"]    = currentHR;
-            doc["SpO2"]  = currentO2;
-            doc["Temp"]  = currentTemp;
-            doc["Resp"]  = 0;   // placeholder
-            doc["BP_sys"] = 0;//systolic; //placeholder
-            doc["BP_dia"] = 0;//diastolic; //placeholder
-
-            String jsonString;
-            serializeJson(doc, jsonString);
-
-             // ----- DEBUG PRINT -----
-            Serial.println("=== DEBUG: JSON TO BE SENT ===");
-            Serial.println(jsonString);
-            Serial.println("================================");
-
-            HTTPClient http;
-            http.setTimeout(3000);
-            http.begin(PC_SERVER_URL);
-            http.addHeader("Content-Type", "application/json");
-
-            int httpCode = http.POST(jsonString);
-
-            // ADDED THE FOLLOWING DEBUG PRINTS TO CHECK HTTP RESPONSE
-            //http.getString() only works after the request (POST) and before calling hhtp.end()
-            Serial.printf("HTTP %d\n", httpCode);
-            if (httpCode > 0) {
-                Serial.print("Response body: ");
-                Serial.println(http.getString());
-            } else {
-                Serial.print("POST failed, error: ");
-                Serial.println(http.errorToString(httpCode));  
-            }
-
-            http.end();
+    //=============================================================================
+    //LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
+    //=============================================================================
+    if(millis() - lastLLMOutput >= LLM_OUTPUT_INTERVAL){
+        lastLLMOutput = millis();
+    
+        //HR measurement not working while wifi is trying to send to LLM, will need to workaround?
+        if(HR_isActive()){
+            Serial.println("LLM send skipped - HR sampling active");
         }
-        //if WiFi disconnected, retry(every 20s to avoid spam)
         else{
-            static unsigned long lastWiFiRetry = 0;
-            if(millis() - lastWiFiRetry > 20000){
-                lastWiFiRetry = millis();
-                Serial.println("WiFi disconnected - attempting reconnect...");
-                connectWiFi();
+            //if WiFi is connected, send data
+            if (WiFi.status() == WL_CONNECTED) {
+    
+                float currentHR   = HR_getMeasurement();
+                float currentO2   = O2_getMeasurement();
+                float currentTemp = TEMP_getMeasurement();
+    
+                StaticJsonDocument<256> doc;
+                doc["HR"]    = currentHR;
+                doc["SpO2"]  = currentO2;
+                doc["Temp"]  = currentTemp;
+                doc["Resp"]  = 0;   // placeholder
+                doc["BP_sys"] = 0;//systolic; //placeholder
+                doc["BP_dia"] = 0;//diastolic; //placeholder
+    
+                String jsonString;
+                serializeJson(doc, jsonString);
+    
+                 // ----- DEBUG PRINT -----
+                Serial.println("=== DEBUG: JSON TO BE SENT ===");
+                Serial.println(jsonString);
+                Serial.println("================================");
+    
+                HTTPClient http;
+                http.setTimeout(3000);
+                http.begin(PC_SERVER_URL);
+                http.addHeader("Content-Type", "application/json");
+    
+                int httpCode = http.POST(jsonString);
+    
+                // ADDED THE FOLLOWING DEBUG PRINTS TO CHECK HTTP RESPONSE
+                //http.getString() only works after the request (POST) and before calling hhtp.end()
+                Serial.printf("HTTP %d\n", httpCode);
+                if (httpCode > 0) {
+                    Serial.print("Response body: ");
+                    Serial.println(http.getString());
+                } else {
+                    Serial.print("POST failed, error: ");
+                    Serial.println(http.errorToString(httpCode));  
+                }
+    
+                http.end();
+            }
+            //if WiFi disconnected, retry(every 20s to avoid spam)
+            else{
+                static unsigned long lastWiFiRetry = 0;
+                if(millis() - lastWiFiRetry > 20000){
+                    lastWiFiRetry = millis();
+                    Serial.println("WiFi disconnected - attempting reconnect...");
+                    connectWiFi();
+                }
             }
         }
-    }
-}
-
-
-    delay(10);
-
-    // Sending to LLM
-    if(PS_check_pass){
-        //live.BP_sys = systolic; 
-        //live.BP_dia = diastolic;
-    }
-        
+    }        
 }
