@@ -88,6 +88,7 @@ static std::string extractChatContent(const std::string& json) {
 }
 
 // ---------------- Build prompt with template FILLED ----------------
+//UPDATED 2/8/26
 std::string buildClinicalDiagnosisPrompt(
     const std::string& name,
     int age,
@@ -99,37 +100,59 @@ std::string buildClinicalDiagnosisPrompt(
     std::ostringstream oss;
 
     oss
-    << "You are a clinical assistant.\n"
-    << "Use ONLY the numbers provided. Do NOT invent values.\n"
-    << "Return ONLY the template below. No extra commentary.\n\n"
+    << "You are a clinical summary generator for a senior engineering project.\n"
+    << "This is NOT a real medical diagnosis.\n"
+    << "Use ONLY the numeric values and risk levels provided below.\n"
+    << "Do NOT invent measurements, symptoms, history, or lab results.\n"
+    << "You MUST write content for every section.\n"
+    << "Do NOT output placeholders, disclaimers beyond the one provided, or refusal text.\n\n"
+
+    << "INTERPRETATION RULES:\n"
+    << "- Risk level 0 = normal / within expected range\n"
+    << "- Risk level 1 = mildly abnormal\n"
+    << "- Risk level 2 = moderately abnormal\n"
+    << "- Risk level 3 = severely abnormal\n"
+    << "- If ALL risk levels are 0, state that no abnormal findings are detected.\n"
+    << "- Base your wording strictly on risk levels and values.\n\n"
+
+    << "OUTPUT FORMAT (FOLLOW EXACTLY):\n\n"
 
     << "Name: " << name << "\n"
     << "Age: " << age << "\n"
     << "Gender: " << gender << "\n"
     << "Date & Time of Visit: " << visit << "\n\n"
 
-    << "Patient Vitals: (Averaged data)\n\n"
+    << "Patient Vitals: (Averaged data)\n"
     << "HR: " << hr << " bpm\n"
     << "SpO2: " << spo2 << " %\n"
     << "Temperature: " << temp << " °C\n"
     << "Respiratory Rate: " << resp << " rpm\n"
-    << "BP: " << sys << "/" << dia << " mmHg\n\n"
+    << "Blood Pressure: " << sys << "/" << dia << " mmHg\n\n"
 
     << "Risk Level: (averaged)\n"
-    << "HR: " << risk_hr << "\n"
-    << "SpO2: " << risk_spo2 << "\n"
-    << "Temperature: " << risk_temp << "\n"
-    << "Respiratory Rate: " << risk_resp << "\n"
-    << "BP: " << risk_bp << "\n\n"
+    << "HR Risk: " << risk_hr << "\n"
+    << "SpO2 Risk: " << risk_spo2 << "\n"
+    << "Temperature Risk: " << risk_temp << "\n"
+    << "Respiratory Risk: " << risk_resp << "\n"
+    << "Blood Pressure Risk: " << risk_bp << "\n\n"
 
-    << "**Disclaimer: All diagnoses are rendered from an AI, it does not constitute professional medical advice**\n\n"
-    << "Current status of Diagnosis:\n"
-    << "(2-4 sentences)\n\n"
-    << "Treatment/Goal Plan:\n"
-    << "(2-4 bullet points)\n";
+    << "**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n\n"
+
+    << "Current Status of Diagnosis:\n"
+    << "- Write exactly 2 to 4 complete sentences.\n"
+    << "- Describe overall physiological status using the provided risks.\n"
+    << "- Mention any mildly, moderately, or severely abnormal vitals explicitly.\n"
+    << "- If all risks are 0, explicitly state that all vitals are within normal limits.\n\n"
+
+    << "Treatment / Goal Plan:\n"
+    << "- Write exactly 2 to 4 bullet points.\n"
+    << "- Bullets should describe monitoring, follow-up, or reassessment only.\n"
+    << "- Do NOT recommend medications, procedures, or emergency actions.\n"
+    << "- If all risks are 0, recommend routine monitoring only.\n";
 
     return oss.str();
 }
+
 
 // ---------------- Send to llama-server ----------------
 std::string sendToLLMChat(const std::string& prompt) {
