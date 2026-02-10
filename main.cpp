@@ -2,6 +2,7 @@
 #include "HR_Sensor.h"
 #include "TEMP_Sensor.h"
 #include "BP.h"
+#include "RESP.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -129,10 +130,8 @@ void setup(){
     TEMP_init();
     
     Serial.println("\n=== READY ===");
-    Serial.println("Press D6 to start HR+TEMP measurements");
-    Serial.println("OR press D4 for HR only");
-    Serial.println("BP uses A0 button (from BP.h code)");
-    Serial.println("\nNOTE: D2 is used by BP system (in4), don't use for buttons!");
+    Serial.println("Press D6 to start HR+TEMP+RESP measurements");
+    Serial.println("Press A0 to start BP measurement");
     
 }
 
@@ -157,18 +156,21 @@ void loop(){
         delay(50);
         
         Serial.println("\n======================================");
-        Serial.println("D6 PRESSED - STARTING HR+TEMP SENSORS");
+        Serial.println("D6 PRESSED - STARTING HR+TEMP+RESP SENSORS");
         Serial.println("======================================");
         
         TEMP_startMeasurement();
-
+        
         HR_startMeasurement();
+
+        RESP_startMeasurement();
     }
     lastD6State = currentD6;
     
     // Update HR and TEMP sensors (non-blocking)
     TEMP_update();
     HR_update();
+    RESP_update();
 
 
     //=============================================================================
