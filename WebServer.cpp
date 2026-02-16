@@ -11,10 +11,16 @@
 #include <mutex>
 #include <chrono>
 
+#include <atomic>
+std::atomic<bool> g_liveEnabled{true}; // global flag to enable/disable live vitals updates (for testing)
+
+
 static std::mutex g_vitalsMutex;
 static Vitals g_latestFromWifi{};
 static bool g_hasWifiVitals = false;
 static std::chrono::steady_clock::time_point g_lastRx;
+
+
 
 // ============================================================================
 // WebServer.cpp (Clinical Diagnosis AFTER 3-minute session)
@@ -257,6 +263,16 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
             }
         }
 
+        if (!g_liveEnabled) stale = true;
+
+        if (stale) {
+            vcopy.HR = -1;
+            vcopy.SpO2 = -1;
+            vcopy.Temp = -1;
+            vcopy.Resp = -1;
+            vcopy.BP_sys = -1;
+            vcopy.BP_dia = -1;
+        }
 
         // 3) risks (using the chosen vitals)
         int risk_hr   = (vcopy.HR   < 0) ? 0 : calc_HR_risk(vcopy.HR);
@@ -295,6 +311,12 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
     svr.Post("/api/ingest", [&](const httplib::Request& req, httplib::Response& res) {
         const std::string& body = req.body;
         
+        if (!g_liveEnabled) {
+            // Live is OFF: ignore incoming packets (like if wifi went out or esp32 us unplugged)
+            res.status = 204; // No Content
+            return;
+        }
+
         // See ESP32 packets printing in terminal
         std::cout << "[ingest] " << body << std::endl;
 
@@ -315,6 +337,26 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
             g_hasWifiVitals = true;
             g_lastRx = std::chrono::steady_clock::now();
         }
+
+        res.set_content("OK", "text/plain; charset=utf-8");
+    });
+    
+    // ---------------------------------------------------------
+    // GET /api/live  -> return whether live mode is enabled
+    // ---------------------------------------------------------
+    svr.Get("/api/live", [&](const httplib::Request&, httplib::Response& res) {
+        std::string json = std::string("{\"on\":") + (g_liveEnabled ? "true" : "false") + "}";
+        res.set_content(json, "application/json; charset=utf-8");
+    });
+
+    // ---------------------------------------------------------
+    // POST /api/live  -> set live mode (expects {"on":true} or {"on":false})
+    // ---------------------------------------------------------
+    svr.Post("/api/live", [&](const httplib::Request& req, httplib::Response& res) {
+        const std::string& body = req.body;
+
+        bool on = (body.find("true") != std::string::npos);
+        g_liveEnabled = on;
 
         res.set_content("OK", "text/plain; charset=utf-8");
     });
@@ -516,6 +558,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                                 <div style="display:flex; align-items:center; gap:12px; margin-top:12px;">
                                     <button id="startBtn" class="mini-btn" onclick="startVitalsSession()">Start Vitals (3:00)</button>
+                                    <button id="liveToggleBtn" class="mini-btn" onclick="toggleLive()">Live: ON</button>
                                     <div class="muted">Time left: <span id="timerLabel">3:00</span></div>
                                     <div class="muted" id="sessionStatus"></div>
                                 </div>
@@ -865,11 +908,18 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 const r = await fetch('/api/vitals');
                                 const v = await r.json();
 
-                                document.getElementById('hrValue').textContent   = Math.round(v.hr) + " bpm";
-                                document.getElementById('spo2Value').textContent = Math.round(v.spo2) + " %";
-                                document.getElementById('tempValue').textContent = Number(v.temp).toFixed(1) + " °C";
-                                document.getElementById('respValue').textContent = Math.round(v.resp) + " rpm";
-                                document.getElementById('bpValue').textContent   = Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg";
+                                const fmt = (x, suffix, digits=null) => {
+                                    const n = Number(x);
+                                    if (!Number.isFinite(n) || n < 0) return "N/A";
+                                    if (digits !== null) return n.toFixed(digits) + suffix;
+                                    return Math.round(n) + suffix;
+                                };
+
+                                document.getElementById('hrValue').textContent   = fmt(v.hr, " bpm");
+                                document.getElementById('spo2Value').textContent = fmt(v.spo2, " %");
+                                document.getElementById('tempValue').textContent = fmt(v.temp, " °C", 1);
+                                document.getElementById('respValue').textContent = fmt(v.resp, " rpm");
+                                document.getElementById('bpValue').textContent   = (Number(v.sys) < 0 || Number(v.dia) < 0) ? "N/A" : (Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg");
 
                                 const hrR = document.getElementById('hrRisk');
                                 const spR = document.getElementById('spo2Risk');
@@ -882,6 +932,38 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 tR.textContent  = "Risk " + v.risk_temp;  tR.style.background  = riskColorJS(v.risk_temp);
                                 rrR.textContent = "Risk " + v.risk_resp;  rrR.style.background = riskColorJS(v.risk_resp);
                                 bpR.textContent = "Risk " + v.risk_bp;    bpR.style.background = riskColorJS(v.risk_bp);
+                            } catch (e) {}
+                        }
+
+                        // -----------------------------
+                        // Live ON/OFF toggle logic
+                        // -----------------------------
+
+                        let liveOn = true;
+
+                        async function loadLiveState() {
+                            try {
+                                const r = await fetch("/api/live");
+                                const s = await r.json();
+                                liveOn = !!s.on;
+
+                                const btn = document.getElementById("liveToggleBtn");
+                                if (btn) btn.textContent = liveOn ? "Live: ON" : "Live: OFF";
+                            } catch (e) {}
+                        }
+
+                        async function toggleLive() {
+                            liveOn = !liveOn;
+
+                            const btn = document.getElementById("liveToggleBtn");
+                            if (btn) btn.textContent = liveOn ? "Live: ON" : "Live: OFF";
+
+                            try {
+                               await fetch("/api/live", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ on: liveOn })
+                                }); 
                             } catch (e) {}
                         }
 
@@ -906,6 +988,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         async function sampleVitalsOnce() {
                             const r = await fetch('/api/vitals');
                             const v = await r.json();
+                            if (v.stale || Number(v.hr) < 0) return; // don't log invalid data
 
                             sessionSamples.push({
                                 ts_iso: new Date().toISOString(),
