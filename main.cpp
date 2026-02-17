@@ -8,19 +8,22 @@
 #include <ArduinoJson.h>
 //#include "esp_wpa2.h"
 
+/*
+        --------------2/16/26----------------
+    Expected Behavior:
+    - UI live button ON -> (ESP32 serial) liveEnabled=true & HTTP 200 -> (Server) [ingest] prints -> (UI) values update
+    - UI live button OFF -> (ESP32 serial) liveEnabled=false & skipping POST -> (Server) [ingest] stops printing -> (UI) goes N/A 
+*/
+
 //WiFi credentials - CHANGE THESE
 //regular WiFi:
 const char* WIFI_SSID = "iPhone";
 const char* WIFI_PASSWORD = "milliondollars";
 
-//WPA2-Enterprise  eduroam config:
-//uncomment
-//const char* EAP_IDENTITY = "apapi001@ucr.edu";
-//const char* EAP_USERNAME = "apapi001@ucr.edu";  
-//const char* EAP_PASSWORD = "password";
-
 //PC server address - CHANGE to PC's local IP
-const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest";  //IP using ipconfig/ifconfig
+const char* PC_SERVER_URL = "http://172.20.10.8:8000/api/ingest";  //IP using ipconfig/ifconfig
+
+const char* PC_LIVE_URL = "http://172.20.10.8:8000/api/live";
 
 //Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -69,6 +72,18 @@ void connectWiFi() {
         Serial.println("\nWiFi connection failed!");
         Serial.println(WiFi.status());
     }
+}
+
+bool getLiveEnabled() {
+    HTTPClient http;
+    http.setTimeout(1500);
+    http.begin(PC_LIVE_URL);
+    int code = http.GET();
+    String body = http.getString();
+    http.end();
+
+    if (code != 200) return false;            // fail-safe
+    return body.indexOf("\"on\":true") >= 0;  // expects {"on":true/false}
 }
 
 void setup(){
@@ -183,49 +198,79 @@ void loop(){
         if(HR_isActive()){
             Serial.println("LLM send skipped - HR sampling active");
         }
-        else{
+        else
+        {
             //if WiFi is connected, send data
             if (WiFi.status() == WL_CONNECTED) {
     
-                float currentHR   = HR_getMeasurement();
-                float currentO2   = O2_getMeasurement();
-                float currentTemp = TEMP_getMeasurement();
-    
-                StaticJsonDocument<256> doc;
-                doc["HR"]    = currentHR;
-                doc["SpO2"]  = currentO2;
-                doc["Temp"]  = currentTemp;
-                doc["Resp"]  = 0;   // placeholder
-                doc["BP_sys"] = 0;//systolic; //placeholder
-                doc["BP_dia"] = 0;//diastolic; //placeholder
-    
-                String jsonString;
-                serializeJson(doc, jsonString);
-    
-                 // ----- DEBUG PRINT -----
-                Serial.println("=== DEBUG: JSON TO BE SENT ===");
-                Serial.println(jsonString);
-                Serial.println("================================");
-    
-                HTTPClient http;
-                http.setTimeout(3000);
-                http.begin(PC_SERVER_URL);
-                http.addHeader("Content-Type", "application/json");
-    
-                int httpCode = http.POST(jsonString);
-    
-                // ADDED THE FOLLOWING DEBUG PRINTS TO CHECK HTTP RESPONSE
-                //http.getString() only works after the request (POST) and before calling hhtp.end()
-                Serial.printf("HTTP %d\n", httpCode);
-                if (httpCode > 0) {
-                    Serial.print("Response body: ");
-                    Serial.println(http.getString());
-                } else {
-                    Serial.print("POST failed, error: ");
-                    Serial.println(http.errorToString(httpCode));  
+                // --- UI Live ON/OFF gate (poll /api/live once per second) ---
+                static uint32_t lastPoll = 0;
+                static bool liveEnabled = true;
+
+                if (millis() - lastPoll >= 1000) {
+                    lastPoll = millis();
+                    liveEnabled = getLiveEnabled();
+                    Serial.printf("liveEnabled=%s\n", liveEnabled ? "true" : "false");
                 }
+
+                // If UI Live is OFF -> do NOT send POST 
+                if (!liveEnabled) {
+                    Serial.println("Live OFF -> skipping POST");
+                    // don't send anything this cycle                }
+                } 
+                else 
+                {
+                    
+
+                    float currentHR   = HR_getMeasurement();
+                    float currentO2   = O2_getMeasurement();
+                    float currentTemp = TEMP_getMeasurement();
+                    //2/17/26 - CHECK
+                    float currentResp = RESP_getMeasurement();
+
+                    StaticJsonDocument<256> doc;
+                    doc["HR"]    = currentHR;
+                    doc["SpO2"]  = currentO2;
+                    doc["Temp"]  = currentTemp;
+                    // 2/17/26 - CHECK
+                    doc["Resp"]  = currentResp;   // placeholder
+                   
+                    doc["BP_sys"] = -1;//systolic; //placeholder
+                    doc["BP_dia"] = -1;//diastolic; //placeholder
     
-                http.end();
+                    static uint32_t seq = 0;
+                    doc["source"] = "!!!!!!!THE_REAL_ESP32_SENSOR_MODS!!!!!!!";
+                    doc["device_ip"] = WiFi.localIP().toString();
+                    doc["seq"] = seq++;
+
+                    String jsonString;
+                    serializeJson(doc, jsonString);
+        
+                    // ----- DEBUG PRINT -----
+                    Serial.println("=== DEBUG: JSON TO BE SENT ===");
+                    Serial.println(jsonString);
+                    Serial.println("================================");
+    
+                    HTTPClient http;
+                    http.setTimeout(3000);
+                    http.begin(PC_SERVER_URL);
+                    http.addHeader("Content-Type", "application/json");
+        
+                    int httpCode = http.POST(jsonString);
+    
+                    // ADDED THE FOLLOWING DEBUG PRINTS TO CHECK HTTP RESPONSE
+                    //http.getString() only works after the request (POST) and before calling hhtp.end()
+                    Serial.printf("HTTP %d\n", httpCode);
+                    if (httpCode > 0) {
+                        Serial.print("Response body: ");
+                        Serial.println(http.getString());
+                    } else {
+                        Serial.print("POST failed, error: ");
+                        Serial.println(http.errorToString(httpCode));  
+                    }
+    
+                    http.end();
+                }    
             }
             //if WiFi disconnected, retry(every 20s to avoid spam)
             else{
@@ -237,5 +282,6 @@ void loop(){
                 }
             }
         }
+
     }        
 }

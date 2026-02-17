@@ -13,7 +13,8 @@
 
 #include <atomic>
 std::atomic<bool> g_liveEnabled{true}; // global flag to enable/disable live vitals updates (for testing)
-
+std::atomic<bool> g_senseEnabled{false};   // HR/TEMP/RESP
+std::atomic<bool> g_bpStart{false};        // one-shot trigger
 
 static std::mutex g_vitalsMutex;
 static Vitals g_latestFromWifi{};

@@ -1,4 +1,5 @@
 // FILE NAME: pc_main_esp32_only.cpp
+// pc_main_esp32_only.cpp server will not generate vitals; it only receives them
 #include "WebServer.h"
 #include "Risk_Assessment.h"
 #include <iostream>
