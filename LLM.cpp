@@ -203,5 +203,10 @@ std::string sendToLLMChat(const std::string& prompt) {
         return "ERROR: LLM HTTP " + std::to_string(httpCode) + "\n\n" + response;
     }
 
+    std::cout << "\n\n===== RAW LLM SERVER RESPONSE =====\n";
+    std::cout << response << "\n";
+    std::cout << "====================================\n\n";
+
+
     return extractChatContent(response);
 }
