@@ -106,12 +106,12 @@ void RESP_update() {
 
   const int delta = filt - prev_filt;
 
-  // Serial.print("raw=");
-  // Serial.print(raw);
-  // Serial.print(" filt=");
-  // Serial.print((int)lroundf(filt));
-  // Serial.print(" delta=");
-  // Serial.println(delta);
+  Serial.print("raw=");
+  Serial.print(raw);
+  Serial.print(" filt=");
+  Serial.print((int)lroundf(filt));
+  Serial.print(" delta=");
+  Serial.println(delta);
 
   // Inhale logic
   if((delta < 0) && (isInhale == 0)) {
@@ -147,5 +147,6 @@ void RESP_update() {
     exhale_counter = 0;
   }
 }
+
 
 #endif
