@@ -23,6 +23,7 @@ static std::chrono::steady_clock::time_point g_lastRx;
 
 
 
+
 // ============================================================================
 // WebServer.cpp (Clinical Diagnosis AFTER 3-minute session)
 //
@@ -182,6 +183,8 @@ static int jsonGetInt(const std::string& body, const std::string& key, int fallb
     return (int)std::lround(jsonGetNumber(body, key, (double)fallback));
 }
 
+
+
 /*
 ~~~~~~  jsonGetString ~~~~~~
 ** Parameters:
@@ -227,6 +230,51 @@ static std::string jsonGetString(const std::string& body, const std::string& key
         }
     }
     return out.empty() ? fallback : out;
+}
+
+// This function is more flexible than jsonGetInt() 
+// because it can handle both numeric and string 
+// representations of numbers in the JSON (e.g., "age": 22 or "age": "22").
+
+static int jsonGetIntFlexible(const std::string& body, const std::string& key, int fallback = 0) {
+    // Try numeric age: 22
+    int n = jsonGetInt(body, key, INT32_MIN);
+    if (n != INT32_MIN) return n;
+
+    // Try string age: "22"
+    std::string s = jsonGetString(body, key, "");
+    if (s.empty()) return fallback;
+
+    try { return std::stoi(s); }
+    catch (...) { return fallback; }
+}
+//2/19/26 --- Strip identity + any “Patient:” / “Visit:” / “Availabilities:” sections in code
+static std::string stripLinePrefixes(const std::string& s) {
+    std::istringstream in(s);
+    std::ostringstream out;
+    std::string line;
+
+    auto startsWith = [](const std::string& a, const std::string& b) {
+        return a.size() >= b.size() && a.compare(0, b.size(), b) == 0;
+    };
+
+    while (std::getline(in, line)) {
+        // drop common identity/echo lines
+        if (startsWith(line, "Patient:")) continue;
+        if (startsWith(line, "Visit:")) continue;
+        if (startsWith(line, "Name:")) continue;
+        if (startsWith(line, "Age:")) continue;
+        if (startsWith(line, "Gender:")) continue;
+        if (startsWith(line, "Date & Time of Visit:")) continue;
+
+        // drop “echo” sections some models produce
+        if (startsWith(line, "Availabilities:")) continue;
+        if (startsWith(line, "Risk assessment:")) continue;
+        if (startsWith(line, "Risk:")) continue;
+
+        out << line << "\n";
+    }
+    return out.str();
 }
 
 // ============================================================================
@@ -370,12 +418,44 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
     svr.Post("/api/diagnosis", [&](const httplib::Request& req, httplib::Response& res) {
 
         const std::string& body = req.body;
+        //debug: print raw body
+        std::cout << "\n[/api/diagnosis] RAW BODY:\n" << body << "\n";
 
-        // --- Extract patient meta ---
-        std::string name   = jsonGetString(body, "name", "Unknown");
-        std::string gender = jsonGetString(body, "gender", "Unknown");
-        std::string visit  = jsonGetString(body, "visit", "Unknown");
-        int age            = jsonGetInt(body, "age", 0);
+        // --- Extract patient meta (accept multiple key names) ---
+       /*std::string name   = jsonGetString(body, "name", "");
+        int age            = jsonGetInt(body, "age", -1);
+        std::string gender = jsonGetString(body, "gender", "");
+        std::string visit  = jsonGetString(body, "visit", "");
+        */ 
+
+        auto pickStr = [&](std::initializer_list<const char*> keys, const std::string& fb) {
+            for (auto k : keys) {
+                std::string v = jsonGetString(body, k, "");
+                // tiny parser returns fallback if null/unquoted; so empty means "not usable"
+                if (!v.empty() && v != "null" && v != "NULL") return v;
+            }
+            return fb;
+        };
+
+        auto pickInt = [&](std::initializer_list<const char*> keys, int fb) {
+            for (auto k : keys) {
+                int v = jsonGetIntFlexible(body, k, INT32_MIN);
+                if (v != INT32_MIN) return v;
+            }
+            return fb;
+        };
+
+        // --- Extract patient meta (supports many possible key names/casing) ---
+        std::string name = pickStr({"name","Name","patientName","patient_name","profile_name"}, "Unknown");
+        int age          = pickInt({"age","Age","patientAge","patient_age","profile_age"}, 0);
+        std::string gender = pickStr({"gender","Gender","sex","Sex","patientGender","patient_gender","profile_gender"}, "Unknown");
+        std::string visit = pickStr({"visit","Visit","visitLabel","visit_label"}, "Unknown");
+
+        std::cout << "[diagnosis parsed] name=" << name
+                << " age=" << age
+                << " gender=" << gender
+                << " visit=" << visit << "\n";
+
 
         // --- Extract averaged vitals ---
         float hr   = (float)jsonGetNumber(body, "hr", 0);
@@ -392,6 +472,37 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         int risk_resp = jsonGetInt(body, "risk_resp", 0);
         int risk_bp   = jsonGetInt(body, "risk_bp", 0);
 
+        // ~~~~~~~~~~~~~~~~~~~testing 2/19/26 6:30pm idfk anymore~~~~~~~~~~~~~~~~~~`
+        // =======================
+        // Deterministic bypass
+        // =======================
+        bool allZero =
+            (risk_hr == 0 &&
+            risk_spo2 == 0 &&
+            risk_temp == 0 &&
+            risk_resp == 0 &&
+            risk_bp == 0);
+
+        if (allZero) {
+            std::ostringstream out;
+
+            out << "Name: " << name << "\n"
+                << "Age: " << age << "\n"
+                << "Gender: " << gender << "\n"
+                << "Date & Time of Visit: " << visit << "\n\n"
+
+                << "Assessment: No abnormal findings. All averaged vitals are within normal physiological limits.\n\n"
+
+                << "Plan:\n"
+                << "- Continue routine monitoring.\n"
+                << "- Reassess at the next scheduled session.\n\n"
+
+                << "**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n";
+
+            res.set_content(out.str(), "text/plain; charset=utf-8");
+            return;
+        }    
+        //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         // --- Build prompt using your LLM.h API ---
         std::string prompt = buildClinicalDiagnosisPrompt(
             name, age, gender, visit,
@@ -400,12 +511,55 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         );
 
         // --- Call LLM (your LLM.cpp should return plain text content) ---
+        //std::string diagnosis = sendToLLMChat(prompt);
+
         std::string diagnosis = sendToLLMChat(prompt);
+        diagnosis = stripLinePrefixes(diagnosis);
 
-        //debug: print raw body
-        std::cout << "RAW BODY:\n" << body << std::endl;
+        //res.set_content(diagnosis, "text/plain; charset=utf-8");
 
-        res.set_content(diagnosis, "text/plain; charset=utf-8");
+        // Always remove any model-generated disclaimer (optional but cleaner)
+        size_t dpos = diagnosis.find("Disclaimer");
+        if (dpos != std::string::npos) {
+            diagnosis = diagnosis.substr(0, dpos);
+        }
+
+        // Now append YOUR consistent disclaimer
+        diagnosis += "\n**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n";
+
+        // Build final response with deterministic header
+        std::ostringstream out;
+        out << "Name: " << name << "\n"
+            << "Age: " << age << "\n"
+            << "Gender: " << gender << "\n"
+            << "Date & Time of Visit: " << visit << "\n\n"
+            << diagnosis;
+
+        res.set_content(out.str(), "text/plain; charset=utf-8");
+        
+        return;
+
+
+        /*
+        auto stripToClinical = [](const std::string& s) {
+            // If model outputs a bogus header, keep only the clinical portion
+            size_t p = s.find("Current Status of Diagnosis:");
+            if (p != std::string::npos) return s.substr(p);
+            return s;
+        };
+
+        std::string cleaned = stripToClinical(diagnosis);
+
+        std::ostringstream out;
+        out << "Name: " << name << "\n"
+            << "Age: " << age << "\n"
+            << "Gender: " << gender << "\n"
+            << "Date & Time of Visit: " << visit << "\n\n"
+            << cleaned;
+
+        res.set_content(out.str(), "text/plain; charset=utf-8");
+        */
+        
     });
 
     // ---------------------------------------------------------
