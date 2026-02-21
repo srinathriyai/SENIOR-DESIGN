@@ -143,6 +143,7 @@ void setup(){
     //initialize HR and TEMP after BP (to avoid I2C conflicts)
     HR_init();
     TEMP_init();
+    RESP_init();
     
     Serial.println("\n=== READY ===");
     Serial.println("Press D6 to start HR+TEMP+RESP measurements");
