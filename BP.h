@@ -49,10 +49,10 @@ unsigned long currentmillis = 0;
 Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
 
 // Pump & valve pin declarations
-int in1 = 5;
-int in2 = 4;
-int in3 = 3;
-int in4 = 2;
+int in1 = 3;
+int in2 = 2;
+int in3 = 5;
+int in4 = 4;
 
 // State enumerations
 enum sample_pressure{sample_pressure_INIT, sample_pressure_CALIBRATE, sample_pressure_ON, sample_pressure_OFF};
@@ -122,22 +122,22 @@ int tick_sample_pressure(int state) {
       }
       break;
     case sample_pressure_ON:
-      if(is_activated == 0) { // When completed measurement
-        // for(int i = 0; i <= pa_index; ++i) {
-        //   Serial.print(pressure_array[i]); Serial.print(", ");
-        // }
-        // Serial.print("\n");
-        // for(int i = 0; i <= pa_index; ++i) {
-        //   Serial.print(pressure_array_HP[i]); Serial.print(", ");
-        // }
-        // for(int i = 0; i <= pa_index; ++i) {
-        //   curr_val = pressure_array_HP[i];
-        //   if(curr_val > max_HP) {
-        //     max_HP = curr_val;
-        //     max_HP_index = i;
-        //   }
-        // }
-        // Serial.print("\n");
+       if(is_activated == 0) { // When completed measurement
+      //   for(int i = 0; i <= pa_index; ++i) {
+      //     Serial.print(pressure_array[i]); Serial.print(", ");
+      //   }
+      //   Serial.print("\n");
+      //   for(int i = 0; i <= pa_index; ++i) {
+      //     Serial.print(pressure_array_HP[i]); Serial.print(", ");
+      //   }
+      //   for(int i = 0; i <= pa_index; ++i) {
+      //     curr_val = pressure_array_HP[i];
+      //     if(curr_val > max_HP) {
+      //       max_HP = curr_val;
+      //       max_HP_index = i;
+      //     }
+      //   }
+      //   Serial.print("\n");
 
         // Systolic 
         for(int i = 0; i < max_HP_index; ++i) { // Inclusive 0 to exclusive max_HP_index
@@ -210,20 +210,20 @@ int tick_sample_pressure(int state) {
       delta_pressure = curr_pressure - prev_pressure;
 
       // Serial.println(prev_pressure); 
-      // Serial.println(curr_pressure);
-      //Serial.println(delta_pressure);
-      // curr_pressure_HP = hp1.filt(curr_pressure);
+      //Serial.println(curr_pressure);
+      // Serial.println(delta_pressure);
+      curr_pressure_HP = hp1.filt(curr_pressure);
 
 
       if(curr_pressure >= 180) { // Check if pressure is at 180 mmHg
         is_pumping = 0; // <- *TEMP* INFLATE TO 180 MMHG AND THEN DEFLATE
         is_reading = 1;
       }
-      if(is_reading == 1) { // For 1 seconds
-        ++counter_reading_delay;
-      }
+      // if(is_reading == 1) { // For 1 seconds
+      //   ++counter_reading_delay;
+      // }
       if(is_reading == 1) {
-        // Serial.print("Reading \n");
+        //Serial.print("Reading \n");
         // Changes obtained from experimentation:
         // Only take the value if it's within the expected threshold (threshold obtained through experimentation) Currently: [-0.25 to 2]
         if(curr_pressure_HP < 0) {
@@ -232,12 +232,14 @@ int tick_sample_pressure(int state) {
             pressure_array_HP[pa_index] = curr_pressure_HP;
             pressure_array[pa_index] = curr_pressure;
             pa_index = pa_index + 1;
+            //Serial.println(pa_index);
           }
         } else {
           if(curr_pressure_HP < 2) {
             pressure_array_HP[pa_index] = curr_pressure_HP;
             pressure_array[pa_index] = curr_pressure;
             pa_index = pa_index + 1;
+            //Serial.println(pa_index);
           }
         }
       }
@@ -249,7 +251,7 @@ int tick_sample_pressure(int state) {
       }
       break;
     case sample_pressure_OFF:
-      // Serial.print("NOT SAMPLING ");
+      //Serial.print("NOT SAMPLING ");
       break;
   }
 
@@ -279,11 +281,11 @@ int tick_release_valve(int state) {
   switch(state) {
     case release_valve_CLOSED:
       digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
-      // Serial.print("NOT RELEASING \n");
+      //Serial.print("NOT RELEASING \n");
       break;
     case release_valve_OPEN:
       digitalWrite(in1, LOW); digitalWrite(in2, LOW); // RELEASING
-      // Serial.print("RELEASING \n");
+      //Serial.print("RELEASING \n");
       break;
   }
 
@@ -300,7 +302,7 @@ int tick_air_pump(int state) {
       break;
     case air_pump_OFF:
       if (is_pumping == 1) {
-        // digitalWrite(in3, HIGH); digitalWrite(in4, LOW);
+        digitalWrite(in3, HIGH); digitalWrite(in4, LOW);
         // delay(1000);
         state = air_pump_ON;
       }
@@ -315,13 +317,13 @@ int tick_air_pump(int state) {
   switch(state) {
     case air_pump_ON:
       digitalWrite(in3, HIGH); digitalWrite(in4, LOW); // PUMP ON
-      // Serial.print("Pump on \n");
-      // Serial.flush();
+      //Serial.print("Pump on \n");
+      Serial.flush();
       break;
     case air_pump_OFF:
       digitalWrite(in3, LOW); digitalWrite(in4, LOW); // PUMP OFF
-      // Serial.print("Pump off \n");
-      // Serial.flush();
+      //Serial.print("Pump off \n");
+      Serial.flush();
       break;
   }
 
@@ -331,14 +333,14 @@ int tick_air_pump(int state) {
 int tick_start_button(int state) {
   switch(state) {
     case start_button_INIT:
-      state = start_button_ON;
-      delay(1000);
+      // state = start_button_ON;
+      // delay(1000);
       break;
     case start_button_ON:
-      if (analogRead(A0) > 1000) {
-        is_activated = 1;
+      // if (analogRead(A0) > 1000) {
+      //   is_activated = 1;
         // Serial.println(analogRead(A0));
-      }
+      //}
       break;
   }
 
