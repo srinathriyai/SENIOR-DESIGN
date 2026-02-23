@@ -4,15 +4,15 @@
 #include <Arduino.h>
 
 static const uint32_t BAUD = 115200;
-static const uint8_t  SENSOR_PIN = A7;
-bool RESP_measurementStarted = 0;
+static const uint8_t  SENSOR_PIN = 2;
+static bool RESP_measurementStarted = 0;
 
 // Period
 static const uint16_t SAMPLE_MS = 100;
 static unsigned long lastRespSample = 0;
 
 // Filtering
-static const float FILTER_ALPHA = 0.12f;
+static const float FILTER_ALPHA = 0.12f; 
 float filt = 0.0f;
 float prev_filt = 0.0f;
 
@@ -26,11 +26,17 @@ static bool isInhale = 0;
 int inhale_counter = 0;
 const int inhale_counter_threshold = 2;
 int exhale_counter = 0;
-const int exhale_counter_threshold = 6;
+const int exhale_counter_threshold = 3;  //was 6
 
-int prevInhale = 0;
-int now = 0;
-int dt = 0;
+unsigned long prevInhale = 0;
+unsigned long now = 0;
+unsigned long dt = 0;
+
+//int prevInhale = 0;
+//int now = 0;
+//int dt = 0;
+
+unsigned long measurementStartTime = 0;
 
 // Buffer (Averages out abnormal readings)
 static const int MAX_BUFFER = 6;
@@ -71,7 +77,19 @@ float computeBPM_median() {
 }
 
 void RESP_startMeasurement() {
+  Serial.println("RESP_startMeasurement called");  // add this
+  static unsigned long lastStart = 0;
+  if(millis() - lastStart < 3000) return;
+  lastStart = millis();
+  Serial.println("RESP starting...");  // add this too
+
   RESP_measurementStarted = 1;
+  measurementStartTime = millis();
+  bufferCount = 0;
+  isInhale = 0;
+  inhale_counter = 0;
+  exhale_counter = 0;
+  prevInhale = millis();
 }
 
 
@@ -82,37 +100,40 @@ void RESP_init() {
   filt = (float)x0;
 }
 
-
 void RESP_update() {
+  now = millis();
+  if(now - lastRespSample < SAMPLE_MS){
+    return;
+  }
+  lastRespSample = now;
+
+  int raw = analogRead(SENSOR_PIN);
+
+  //update filter regardless of measurement state
+  prev_filt = filt;
+  filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * (float)raw;
+  int delta = filt - prev_filt;
+
+  //only do detection if measurement started
   // Check if ready to start
   if(RESP_measurementStarted == 0) {
     return;
   }
 
-  // Check if it's time to sample
-  now = millis();
-  if(now - lastRespSample >= SAMPLE_MS) {
-    lastRespSample = now;
-    RESP_update();
-  } else {
+  if(millis() - measurementStartTime < 1500) {
+    prevInhale = millis();  // keep resetting so first real dt is from end of settle period
     return;
-  }
-
-  const int raw = analogRead(SENSOR_PIN);   // Read raw analog sensor value (0–1023)
-
-  // low-pass filter
-  prev_filt = filt;
-  filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * (float)raw;
-
-  const int delta = filt - prev_filt;
-
+}
+  
+  Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
+  /*
   Serial.print("raw=");
   Serial.print(raw);
   Serial.print(" filt=");
   Serial.print((int)lroundf(filt));
   Serial.print(" delta=");
   Serial.println(delta);
-
+  */
   // Inhale logic
   if((delta < 0) && (isInhale == 0)) {
     ++inhale_counter;
@@ -126,10 +147,9 @@ void RESP_update() {
     prevInhale = now;
     isInhale = 1;
     inhale_counter = 0;
-    // Clean event line (easy to log)
-    pushInterval(dt);
+    //pushInterval(dt);
+    if(dt > 2000 && dt < 15000) pushInterval(dt);   //gating values to be within normal
     Serial.println(computeBPM_median(), 1);
-
     Serial.print("Inhale detected, dt: ");
     Serial.println(dt);
   }
@@ -141,12 +161,16 @@ void RESP_update() {
     exhale_counter = 0;
   }
 
-  if((exhale_counter >= exhale_counter_threshold)) { // Exhaling detected, wait for next inhale
+  if((exhale_counter >= exhale_counter_threshold)) {
     Serial.print("Exhale detected \n");
     isInhale = 0;
     exhale_counter = 0;
   }
 }
 
+
+float RESP_getMeasurement(){
+    return computeBPM_median();
+}
 
 #endif
