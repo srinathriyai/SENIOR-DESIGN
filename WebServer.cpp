@@ -79,6 +79,8 @@ static std::string htmlEscape(const std::string& s) {
     return out;
 }
 
+
+
 // ============================================================================
 // Tiny JSON helpers (MVP)
 // Supports extracting numbers + strings from a simple JSON object
@@ -276,6 +278,26 @@ static std::string stripLinePrefixes(const std::string& s) {
     }
     return out.str();
 }
+// This function can be used to extract the content of a specific tag 
+// from the model's output.
+
+static std::string extractTag(const std::string& s, const std::string& tag) {
+    std::string open = "<" + tag + ">";
+    std::string close = "</" + tag + ">";
+    size_t a = s.find(open);
+    if (a == std::string::npos) return "";
+    a += open.size();
+    size_t b = s.find(close, a);
+    if (b == std::string::npos) return s.substr(a); // grab to end if no closing tag
+    return s.substr(a, b - a);
+}
+// This function trims leading and trailing whitespace from a string (for the cinical diagnosis formatting)
+static std::string trim(const std::string& s) {
+            size_t a = s.find_first_not_of(" \t\n\r");
+            if (a == std::string::npos) return "";
+            size_t b = s.find_last_not_of(" \t\n\r");
+            return s.substr(a, b - a + 1);
+        }
 
 // ============================================================================
 // startWebServer()
@@ -398,6 +420,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         res.set_content(json, "application/json; charset=utf-8");
     });
 
+    
+
     // ---------------------------------------------------------
     // POST /api/live  -> set live mode (expects {"on":true} or {"on":false})
     // ---------------------------------------------------------
@@ -410,23 +434,19 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         res.set_content("OK", "text/plain; charset=utf-8");
     });
 
-    // ---------------------------------------------------------
+    // --------------------------------------------------------
     // POST /api/diagnosis
     // Browser sends JSON with averaged vitals + averaged risks + patient info
     // Server builds prompt via buildClinicalDiagnosisPrompt() and calls sendToLLMChat()
     // ---------------------------------------------------------
     svr.Post("/api/diagnosis", [&](const httplib::Request& req, httplib::Response& res) {
 
+        std::cerr << ">>> /api/diagnosis HIT <<<\n";
+        std::cerr << ">>> RAW DEBUG ENABLED <<<\n";
+
         const std::string& body = req.body;
         //debug: print raw body
         std::cout << "\n[/api/diagnosis] RAW BODY:\n" << body << "\n";
-
-        // --- Extract patient meta (accept multiple key names) ---
-       /*std::string name   = jsonGetString(body, "name", "");
-        int age            = jsonGetInt(body, "age", -1);
-        std::string gender = jsonGetString(body, "gender", "");
-        std::string visit  = jsonGetString(body, "visit", "");
-        */ 
 
         auto pickStr = [&](std::initializer_list<const char*> keys, const std::string& fb) {
             for (auto k : keys) {
@@ -472,9 +492,13 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         int risk_resp = jsonGetInt(body, "risk_resp", 0);
         int risk_bp   = jsonGetInt(body, "risk_bp", 0);
 
-        // ~~~~~~~~~~~~~~~~~~~testing 2/19/26 6:30pm idfk anymore~~~~~~~~~~~~~~~~~~`
         // =======================
         // Deterministic bypass
+
+        // UPDATED 2/21/26: 
+        // This bypass is triggered if ALL risk scores are 0 (instead of just HR) to better align with clinical intuition. 
+        // This way we can skip the LLM call for patients who are very low risk across the board, 
+        // even if they have a slightly elevated HR that might be a false alarm.
         // =======================
         bool allZero =
             (risk_hr == 0 &&
@@ -491,13 +515,26 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                 << "Gender: " << gender << "\n"
                 << "Date & Time of Visit: " << visit << "\n\n"
 
-                << "Assessment: No abnormal findings. All averaged vitals are within normal physiological limits.\n\n"
+                << "------- Patient Vitals: (Averaged data) -------\n\n"
+                << "HR: " << hr << " bpm\n"
+                << "SpO2: " << spo2 << " %\n"
+                << "Temperature: " << temp << " C\n"
+                << "Respiratory Rate: " << resp << " rpm\n"
+                << "BP: " << sys << "/" << dia << " mmHg\n\n"
 
-                << "Plan:\n"
-                << "- Continue routine monitoring.\n"
-                << "- Reassess at the next scheduled session.\n\n"
+                << "Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice.\n\n"
 
-                << "**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n";
+                << "------- Overall Risk Level: -------\n"
+                << "Risk 0/3 (Normal). All averaged vitals are within expected clinical ranges.\n\n"
+
+                << "------- Current status of Diagnosis: -------\n"
+                << "No abnormal findings. The averaged heart rate, oxygen saturation, temperature, respiration, "
+                    "and blood pressure fall within expected ranges. No immediate concerns are indicated by the "
+                    "current session averages. Continue routine observation to confirm stability over time.\n\n"
+
+                << "------- Treatment/Goal Plan: -------\n"
+                << "Continue routine monitoring during regular sessions. Maintain consistent sensor placement and "
+                    "reassess if any readings trend upward or downward across multiple sessions.\n\n";
 
             res.set_content(out.str(), "text/plain; charset=utf-8");
             return;
@@ -511,55 +548,54 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         );
 
         // --- Call LLM (your LLM.cpp should return plain text content) ---
-        //std::string diagnosis = sendToLLMChat(prompt);
+        std::string raw = sendToLLMChat(prompt);
+        raw = stripLinePrefixes(raw);
 
-        std::string diagnosis = sendToLLMChat(prompt);
-        diagnosis = stripLinePrefixes(diagnosis);
+        //2/21/26 debug: print raw LLM output after stripping line prefixes
+        std::cout << "\n===== RAW (after extractChatContent) =====\n" << raw << "\n";
+        std::cerr << "RAW LEN = " << raw.size() << "\n";
+        std::cerr << raw << "\n";
 
-        //res.set_content(diagnosis, "text/plain; charset=utf-8");
+        // --- Extract RISK/DX/PLAN sections from the model's output ---
+        std::string riskTxt = trim(extractTag(raw, "RISK"));
+        std::string dxTxt   = trim(extractTag(raw, "DX"));
+        std::string planTxt = trim(extractTag(raw, "PLAN"));
 
-        // Always remove any model-generated disclaimer (optional but cleaner)
-        size_t dpos = diagnosis.find("Disclaimer");
-        if (dpos != std::string::npos) {
-            diagnosis = diagnosis.substr(0, dpos);
+        // fallback if model misbehaves
+        if (riskTxt.empty() || dxTxt.empty() || planTxt.empty()) {
+            riskTxt = "Unable to format risk summary from LLM output.";
+            dxTxt   = "Unable to format diagnosis paragraph from LLM output.";
+            planTxt = "Recommend rerunning the session and regenerating the report.";
         }
 
-        // Now append YOUR consistent disclaimer
-        diagnosis += "\n**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n";
-
-        // Build final response with deterministic header
+        // --- Build response content (plain text) ---
+        //SPECIFICALLY FORMATTED: THE ONLY THING THE LLM GENERATES IS THE RISK/DX/PLAN SECTIONS.
         std::ostringstream out;
         out << "Name: " << name << "\n"
             << "Age: " << age << "\n"
             << "Gender: " << gender << "\n"
             << "Date & Time of Visit: " << visit << "\n\n"
-            << diagnosis;
+
+            << "------- Patient Vitals: (Averaged data) -------\n\n"
+            << "HR: " << hr << " bpm\n"
+            << "SpO2: " << spo2 << " %\n"
+            << "Temperature: " << temp << " C\n"
+            << "Respiratory Rate: " << resp << " rpm\n"
+            << "BP: " << sys << "/" << dia << " mmHg\n\n"
+
+            << "------- Overall Risk Level: -------\n"
+            << riskTxt << "\n\n"
+
+            << "**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n\n"
+
+            << "------- Current status of Diagnosis: -------\n"
+            << dxTxt << "\n\n"
+
+            << "------- Treatment/Goal Plan: -------\n"
+            << planTxt << "\n\n";
 
         res.set_content(out.str(), "text/plain; charset=utf-8");
-        
-        return;
 
-
-        /*
-        auto stripToClinical = [](const std::string& s) {
-            // If model outputs a bogus header, keep only the clinical portion
-            size_t p = s.find("Current Status of Diagnosis:");
-            if (p != std::string::npos) return s.substr(p);
-            return s;
-        };
-
-        std::string cleaned = stripToClinical(diagnosis);
-
-        std::ostringstream out;
-        out << "Name: " << name << "\n"
-            << "Age: " << age << "\n"
-            << "Gender: " << gender << "\n"
-            << "Date & Time of Visit: " << visit << "\n\n"
-            << cleaned;
-
-        res.set_content(out.str(), "text/plain; charset=utf-8");
-        */
-        
     });
 
     // ---------------------------------------------------------
@@ -596,7 +632,9 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                 .muted { opacity:0.7; font-size:13px; }
                 .page { display:none; } .page.active { display:block; }
                 .list { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
-                .list-item { background:#fff; border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:12px 14px; }
+                
+                .list-item { background:#fff; border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:18px 20px; }     
+
                 .container { max-width:900px; margin:0; }
                 h2 { text-align:left; margin:0 0 8px 0; font-weight:700; }
                 .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
@@ -617,9 +655,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                 <aside class="sidebar">
                     <div class="brand">Vitals Monitor</div>
                     <div class="nav">
-                        <button id="navPatients" class="active" onclick="go('patients')">Patients</button>
+                        <button id="navPatients" class="active" onclick="go('patients')">Patient Profiles</button>
                         <button id="navLive" onclick="go('live')">Live Vitals</button>
-                        <button id="navReports" onclick="go('reports')">Reports</button>
                         <button id="navDx" onclick="go('diagnosis')">Clinical Diagnosis</button>
                     </div>
                     <div style="margin-top:16px;" class="muted">
@@ -642,12 +679,14 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 <div class="list-item">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
                                         <div>
-                                            <div><b>Patient A</b> <span class="muted" id="pA_status"></span></div>
-                                            <div class="muted" id="pA_label">Not set</div>
+                                            <div style="font-size:17px;font-weight:800;" id="pA_name">Not set <span style="font-size:13px;font-weight:400;opacity:0.5;"> (Patient A)</span> <span style="font-size:14px;font-weight:400;color:#777;" id="pA_status"></span></div>
+                                            <div style="font-size:14px;margin-top:5px;color:#555;" id="pA_label"></div>
                                         </div>
+
                                         <div style="display:flex; gap:8px;">
                                             <button class="mini-btn" id="btnEditA" onclick="editPatient(0)">Edit</button>
                                             <button class="mini-btn" id="btnSelectA" onclick="activatePatient(0)">Select</button>
+                                            <button class="mini-btn" id="btnClearA" onclick="clearPatient(0)" style="color:#e74c3c;border-color:rgba(231,76,60,0.3);">Clear</button>
                                         </div>
                                     </div>
                                 </div>
@@ -655,12 +694,14 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 <div class="list-item">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
                                         <div>
-                                            <div><b>Patient B</b> <span class="muted" id="pB_status"></span></div>
-                                            <div class="muted" id="pB_label">Not set</div>
+                                            <div style="font-size:17px;font-weight:800;" id="pB_name">Not set <span style="font-size:13px;font-weight:400;opacity:0.5;"> (Patient B)</span> <span style="font-size:14px;font-weight:400;color:#777;" id="pB_status"></span></div>
+                                            <div style="font-size:14px;margin-top:5px;color:#555;" id="pB_label"></div>
                                         </div>
+
                                         <div style="display:flex; gap:8px;">
                                             <button class="mini-btn" id="btnEditB" onclick="editPatient(1)">Edit</button>
                                             <button class="mini-btn" id="btnSelectB" onclick="activatePatient(1)">Select</button>
+                                            <button class="mini-btn" id="btnClearB" onclick="clearPatient(1)" style="color:#e74c3c;border-color:rgba(231,76,60,0.3);">Clear</button>
                                         </div>
                                     </div>
                                 </div>
@@ -713,6 +754,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                                 <div style="display:flex; align-items:center; gap:12px; margin-top:12px;">
                                     <button id="startBtn" class="mini-btn" onclick="startVitalsSession()">Start Vitals (3:00)</button>
+                                    <button id="stopBtn" class="mini-btn" onclick="stopSession()" disabled>Stop Session</button>
+
                                     <button id="liveToggleBtn" class="mini-btn" onclick="toggleLive()">Live: ON</button>
                                     <div class="muted">Time left: <span id="timerLabel">3:00</span></div>
                                     <div class="muted" id="sessionStatus"></div>
@@ -756,27 +799,16 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         </div>
                     </section>
 
-                    <section id="pageReports" class="page">
-                        <div class="card">
-                            <div class="vital-name">Reports</div>
-                            <div class="muted">Saved session exports. Download anytime.</div>
-                            <div class="list" id="reportsList" style="margin-top:14px;"></div>
-                            <div style="margin-top:12px;">
-                                <button class="mini-btn" onclick="clearAllReports()">Clear all</button>
-                            </div>
-                        </div>
-                    </section>
-
                     <section id="pageDx" class="page">
-                        <div class="card">
-                            <div class="vital-name">Clinical Diagnosis</div>
-                            <div class="muted">Generated once per completed 3-minute session.</div>
-                            <div class="list" id="dxList" style="margin-top:14px;"></div>
-                            <div style="margin-top:12px;">
-                                <button class="mini-btn" onclick="clearAllDx()">Clear all</button>
-                            </div>
+                    <div class="card">
+                        <div class="vital-name">Clinical Diagnoses</div>
+                        <div class="muted">Generated after each completed 3-minute session. Download the raw CSV or a PDF summary.</div>
+                        <div class="list" id="dxList" style="margin-top:14px;"></div>
+                        <div style="margin-top:12px;">
+                            <button class="mini-btn danger" onclick="clearAllDx()" style="color:#e74c3c;border-color:rgba(231,76,60,0.3);">Clear all</button>
                         </div>
-                    </section>
+                    </div>
+                </section>
 
                     <script>
                         const historyStack = [];
@@ -785,7 +817,6 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         function setActiveNav(page) {
                             document.getElementById('navPatients').classList.toggle('active', page === 'patients');
                             document.getElementById('navLive').classList.toggle('active', page === 'live');
-                            document.getElementById('navReports').classList.toggle('active', page === 'reports');
                             document.getElementById('navDx').classList.toggle('active', page === 'diagnosis');
                         }
 
@@ -793,22 +824,19 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             const title =
                                 (page === 'patients') ? 'Patients' :
                                 (page === 'live') ? 'Live Vitals' :
-                                (page === 'reports') ? 'Reports' :
-                                'Clinical Diagnosis';
+                                (page === 'diagnosis') ? 'Clinical Diagnoses' :
                             document.getElementById('pageTitle').textContent = title;
                         }
 
                         function showPage(page) {
                             document.getElementById('pagePatients').classList.toggle('active', page === 'patients');
                             document.getElementById('pageLive').classList.toggle('active', page === 'live');
-                            document.getElementById('pageReports').classList.toggle('active', page === 'reports');
                             document.getElementById('pageDx').classList.toggle('active', page === 'diagnosis');
 
                             currentPage = page;
                             setActiveNav(page);
                             setPageTitle(page);
 
-                            if (page === 'reports') renderReports();
                             if (page === 'diagnosis') renderDx();
                         }
 
@@ -852,13 +880,29 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         }
 
                         function renderPatientsUI() {
-                            document.getElementById("pA_label").textContent = fmtPatient(patients[0]);
-                            document.getElementById("pB_label").textContent = fmtPatient(patients[1]);
+
+                            // Grey out "Not set" cards
+                            document.getElementById("pA_name").style.opacity = patients[0].name ? "1" : "0.4";
+                            document.getElementById("pB_name").style.opacity = patients[1].name ? "1" : "0.4";
+
+                            document.getElementById("pA_name").childNodes[0].textContent = patients[0].name || "Not set ";
+                            document.getElementById("pA_label").textContent = patients[0].name ? `${patients[0].gender} • Age ${patients[0].age}` : "";
+                            document.getElementById("pB_name").childNodes[0].textContent = patients[1].name || "Not set ";
+                            document.getElementById("pB_label").textContent = patients[1].name ? `${patients[1].gender} • Age ${patients[1].age}` : "";
 
                             document.getElementById("pA_status").textContent =
                                 patients[0].lastExport ? `• Last export: ${patients[0].lastExport}` : "";
                             document.getElementById("pB_status").textContent =
                                 patients[1].lastExport ? `• Last export: ${patients[1].lastExport}` : "";
+                        }
+                        
+                        function clearPatient(id) {
+                            if (sessionRunning) return alert("Stop the session before clearing a profile.");
+                            if (!confirm(`Clear Patient ${id === 0 ? "A" : "B"}'s profile?`)) return;
+                            patients[id] = { name: "", gender: "", age: "", lastExport: "" };
+                            if (activePatientId === id) activePatientId = null;
+                            savePatientsToStorage();
+                            renderPatientsUI();
                         }
 
                         function editPatient(id) {
@@ -1022,16 +1066,28 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 (b.createdAtIso || "").localeCompare(a.createdAtIso || "")
                             );
 
+                            const riskColor = (r) => {
+                                if (r === 0) return "#2ecc71";
+                                if (r === 1) return "#f1c40f";
+                                if (r === 2) return "#e67e22";
+                                return "#e74c3c";
+                            };
+
                             list.innerHTML = sorted.map(d => `
                                 <div class="list-item">
-                                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
-                                        <div style="flex:1;">
-                                            <div><b>${d.patientLabel}</b></div>
-                                            <div class="muted">${new Date(d.createdAtIso).toLocaleString()}</div>
-                                            <div style="margin-top:10px; white-space:pre-wrap; line-height:1.5;">${escapeHtml(d.text)}</div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                                        <div>
+                                            <div style="font-size:15px;font-weight:700;">
+                                                ${d.patientLabel.split(":")[1]?.trim() || d.patientLabel}
+                                                <span class="muted">(${d.patientLabel.split(":")[0]?.trim()})</span>
+                                                <span style="display:inline-block;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:600;color:#fff;margin-left:8px;background:${riskColor(d.overallRisk ?? 0)};">Risk ${d.overallRisk ?? 0}</span>
+                                            </div>
+                                            <div class="muted" style="margin-top:4px;">${new Date(d.createdAtIso).toLocaleString()} &bull; ${d.sampleCount || 0} samples</div>
                                         </div>
                                         <div style="display:flex; gap:8px;">
-                                            <button class="mini-btn" onclick="deleteDx('${d.id}')">Delete</button>
+                                            ${d.csvText ? `<button class="mini-btn" style="color:#27ae60;border-color:rgba(39,174,96,0.3);" onclick="downloadDxCSV('${d.id}')">⬇ Download CSV</button>` : ""}
+                                            <button class="mini-btn" style="color:#2980b9;border-color:rgba(41,128,185,0.3);" onclick="downloadDxPDF('${d.id}')">⬇ Download PDF</button>
+                                            <button class="mini-btn" style="color:#e74c3c;border-color:rgba(231,76,60,0.3);" onclick="deleteDx('${d.id}')">Delete</button>
                                         </div>
                                     </div>
                                 </div>
@@ -1042,6 +1098,39 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             dxItems = dxItems.filter(x => x.id !== id);
                             saveDx();
                             renderDx();
+                        }
+
+                        function downloadDxCSV(id) {
+                            const d = dxItems.find(x => x.id === id);
+                            if (!d || !d.csvText) return alert("No CSV data found for this session.");
+                            downloadTextFile(d.csvFilename || "session.csv", d.csvText);
+                        }
+
+                        function downloadDxPDF(id) {
+                            const d = dxItems.find(x => x.id === id);
+                            if (!d) return;
+
+                            const win = window.open("", "_blank");
+                            win.document.write(`
+                                <html>
+                                <head>
+                                    <title>${d.patientLabel} - Clinical Diagnosis</title>
+                                    <style>
+                                        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+                                        h1 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+                                        .muted { color: #888; font-size: 13px; margin-bottom: 24px; }
+                                        .content { line-height: 1.8; font-size: 14px; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <h1>Clinical Diagnosis Report</h1>
+                                    <div class="muted">${d.patientLabel} &bull; ${new Date(d.createdAtIso).toLocaleString()}</div>
+                                    <div class="content">${formatDiagnosis(d.text)}</div>
+                                    <script>window.onload = () => { window.print(); }<\/script>
+                                </body>
+                                </html>
+                            `);
+                            win.document.close();
                         }
 
                         function clearAllDx() {
@@ -1082,11 +1171,13 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 const rrR = document.getElementById('respRisk');
                                 const bpR = document.getElementById('bpRisk');
 
-                                hrR.textContent = "Risk " + v.risk_hr;    hrR.style.background = riskColorJS(v.risk_hr);
-                                spR.textContent = "Risk " + v.risk_spo2;  spR.style.background = riskColorJS(v.risk_spo2);
-                                tR.textContent  = "Risk " + v.risk_temp;  tR.style.background  = riskColorJS(v.risk_temp);
-                                rrR.textContent = "Risk " + v.risk_resp;  rrR.style.background = riskColorJS(v.risk_resp);
-                                bpR.textContent = "Risk " + v.risk_bp;    bpR.style.background = riskColorJS(v.risk_bp);
+                                const stale = v.stale;
+                                hrR.textContent  = stale ? "Risk --" : "Risk " + v.risk_hr;   hrR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_hr);
+                                spR.textContent  = stale ? "Risk --" : "Risk " + v.risk_spo2; spR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_spo2);
+                                tR.textContent   = stale ? "Risk --" : "Risk " + v.risk_temp; tR.style.background   = stale ? "#bdc3c7" : riskColorJS(v.risk_temp);
+                                rrR.textContent  = stale ? "Risk --" : "Risk " + v.risk_resp; rrR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_resp);
+                                bpR.textContent  = stale ? "Risk --" : "Risk " + v.risk_bp;   bpR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_bp);
+
                             } catch (e) {}
                         }
 
@@ -1224,7 +1315,6 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                             try {
                                 console.log("DX payload:", payload);
-                                alert(JSON.stringify(payload, null, 2));
 
                                 const r = await fetch("/api/diagnosis", {
                                     method: "POST",
@@ -1234,14 +1324,30 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                                 const text = await r.text();
 
-                                if (dxTextEl) dxTextEl.textContent = text;
+                                if (dxTextEl) dxTextEl.innerHTML = formatDiagnosis(text);
                                 if (dxStatusEl) dxStatusEl.textContent = "";
 
                                 const id = "dx_" + Math.random().toString(16).slice(2) + "_" + Date.now();
                                 const nowIso = new Date().toISOString();
                                 const patientLabel = `${activePatientId === 0 ? "Patient A" : "Patient B"}: ${patient.name}`;
 
-                                dxItems.push({ id, createdAtIso: nowIso, patientLabel, text, reportId });
+                                //-----------------------------
+                                // Link the diagnosis to the report by reportId, and save all relevant info in dx
+                                //-----------------------------
+
+                                const linkedReport = reports.find(r => r.id === reportId);
+                                dxItems.push({ 
+                                    id, 
+                                    createdAtIso: nowIso, 
+                                    patientLabel, 
+                                    text, 
+                                    reportId,
+                                    csvText: linkedReport ? linkedReport.csvText : null,
+                                    csvFilename: linkedReport ? linkedReport.filename : null,
+                                    sampleCount: linkedReport ? linkedReport.sampleCount : 0,
+                                    overallRisk: Math.max(avg.risk_hr, avg.risk_spo2, avg.risk_temp, avg.risk_resp, avg.risk_bp)
+                                });
+
                                 saveDx();
                                 renderDx();
 
@@ -1250,6 +1356,21 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 if (dxTextEl) dxTextEl.textContent = "Run another session and try again.";
                             }
                         }
+                        // -----------------------------
+                        // Making the LLM response look nicer with some basic formatting 
+                        // -----------------------------
+                        function formatDiagnosis(text) {
+                            return text
+                                .replace("------- Patient Vitals: (Averaged data) -------", "<b>🩺 Patient Vitals (Averaged)</b>")
+                                .replace("------- Overall Risk Level: -------", "<b>⚠️ Overall Risk Level</b>")
+                                .replace("------- Current status of Diagnosis: -------", "<b>🔍 Current Status of Diagnosis</b>")
+                                .replace("------- Treatment/Goal Plan: -------", "<b>📋 Treatment / Goal Plan</b>")
+                                .replace("**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**", "<i style='color:#c0392b;font-size:14px;font-weight:bold;'>⚕️ Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice.</i>")                                .replaceAll("\n", "<br>");
+                        }
+
+                        // -----------------------------
+                        // Vitals session logic: start, stop, save report, generate diagnosis
+                        // -----------------------------
 
                         function startVitalsSession() {
                             if (sessionRunning) return;
@@ -1265,6 +1386,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                             lockPatientControls(true);
                             document.getElementById("startBtn").disabled = true;
+                            document.getElementById("stopBtn").disabled = false; 
+
                             document.getElementById("sessionStatus").textContent = "Recording…";
 
                             document.getElementById("dxStatus").textContent = "";
@@ -1280,6 +1403,22 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             }, 1000);
                         }
 
+                        function stopSession() {
+                            if (!sessionRunning) return;
+                            clearInterval(countdownTimer);
+                            clearInterval(logTimer);
+                            countdownTimer = null;
+                            logTimer = null;
+                            sessionRunning = false;
+                            secondsLeft = SESSION_SECONDS;
+                            updateTimerUI();
+                            lockPatientControls(false);
+                            document.getElementById("startBtn").disabled = false;
+                            document.getElementById("stopBtn").disabled = true;
+                            document.getElementById("sessionStatus").textContent = "Session stopped.";
+                            document.getElementById("dxText").textContent = "Session was stopped. Run a new session to generate diagnosis.";
+                        }
+
                         function stopVitalsSessionAndSaveReport() {
                             if (!sessionRunning) return;
 
@@ -1291,6 +1430,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                             lockPatientControls(false);
                             document.getElementById("startBtn").disabled = false;
+                            document.getElementById("stopBtn").disabled = true;
 
                             if (sessionSamples.length === 0) {
                                 document.getElementById("sessionStatus").textContent = "Stopped (no data).";

@@ -4,6 +4,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+// MODEL USED:
+// https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct
 
 // ============================================================================
 // LLM.cpp (Local LLM Client + Prompt Builder)
@@ -56,9 +58,48 @@ static std::string jsonEscape(const std::string& s) {
 }
 
 // -------- Extract choices[0].message.content from OpenAI JSON --------
-// This is intentionally “string find” MVP parsing (no JSON library).
+// UPDATED 2/21/26
+// It finds "role":"assistant" first, then extracts the content after that, 
+// instead of grabbing the first "content" in the whole JSON
+
+
 static std::string extractChatContent(const std::string& json) {
-    // Look for: "content":"...."
+     // Prefer the assistant role content (more reliable than first "content")
+    size_t rolePos = json.find("\"role\":\"assistant\"");
+    if (rolePos == std::string::npos) {
+        // fallback: last "content" in the response
+        rolePos = json.rfind("\"content\":\"");
+        if (rolePos == std::string::npos) return json;
+    }
+    
+    const std::string key = "\"content\":\"";
+    size_t start = json.find(key, rolePos);
+    if (start == std::string::npos) return json; // fallback (shows error body)
+    start += key.size();
+
+    std::string out;
+    out.reserve(512);
+
+    bool escape = false;
+    for (size_t i = start; i < json.size(); i++) {
+        char c = json[i];
+        if (escape) {
+            if (c == 'n') out.push_back('\n');
+            else if (c == 'r') out.push_back('\r');
+            else if (c == 't') out.push_back('\t');
+            else out.push_back(c);
+            escape = false;
+            continue;
+        }
+        if (c == '\\') { escape = true; continue; }
+        if (c == '"') break;
+        out.push_back(c);
+    }
+
+    return out.empty() ? json : out;
+
+
+    /*
     const std::string key = "\"content\":\"";
     size_t start = json.find(key);
     if (start == std::string::npos) return json; // fallback (shows error body)
@@ -85,7 +126,11 @@ static std::string extractChatContent(const std::string& json) {
     }
 
     return out.empty() ? json : out;
+    
+    */
+    
 }
+
 // ---------------- Extract content between tags (e.g., <OUTPUT>) ----------------
 // This can be used to pull out the specific section of the model's 
 // output if you include tags in your prompt and want to ensure only 
@@ -102,7 +147,7 @@ static std::string extractBetweenTags(const std::string& s,
 }
 
 // ---------------- Build prompt with template FILLED ----------------
-//UPDATED 2/19/26
+//UPDATED 2/21/26
 
 std::string buildClinicalDiagnosisPrompt(
     const std::string& name,
@@ -115,107 +160,42 @@ std::string buildClinicalDiagnosisPrompt(
     std::ostringstream oss;
 
     oss
-    << "ENGLISH ONLY.\n"
-    << "Use ONLY the values below. Do NOT invent conditions or extra data.\n"
-    << "If ALL risks are 0, write: \"No abnormal findings.\" and give routine monitoring bullets.\n\n"
+      << "ENGLISH ONLY.\n"
+      << "You are generating text for a senior design demo system. Not medical advice.\n"
+      << "Use ONLY the numeric vitals and risk levels provided. Do NOT invent symptoms, history, diagnoses, meds, or labs.\n"
+      << "Do NOT output Name/Age/Gender/Visit. Do NOT repeat the vitals list.\n\n"
 
-    << "Patient: " << name << ", " << age << ", " << gender << "\n"
-    << "Visit: " << visit << "\n\n"
+      << "Vitals (averaged): "
+      << "HR=" << hr << " bpm, "
+      << "SpO2=" << spo2 << " %, "
+      << "Temp=" << temp << " C, "
+      << "Resp=" << resp << " rpm, "
+      << "BP=" << sys << "/" << dia << " mmHg.\n"
 
-    << "Averages: HR " << hr << " bpm; SpO2 " << spo2 << " %; Temp " << temp
-    << " C; Resp " << resp << " rpm; BP " << sys << "/" << dia << " mmHg.\n"
-    << "Risks (0-3): HR " << risk_hr << ", SpO2 " << risk_spo2
-    << ", Temp " << risk_temp << ", Resp " << risk_resp << ", BP " << risk_bp << ".\n\n"
+      << "Risk levels (0-3): "
+      << "HR=" << risk_hr << ", "
+      << "SpO2=" << risk_spo2 << ", "
+      << "Temp=" << risk_temp << ", "
+      << "Resp=" << risk_resp << ", "
+      << "BP=" << risk_bp << ".\n\n"
 
-    << "Output EXACTLY in this format:\n"
-    << "Assessment: <1-2 sentences>\n"
-    << "Plan:\n"
-    << "- <bullet>\n"
-    << "- <bullet>\n";
-   // << "**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\n";
+      << "Return ONLY the text inside the following template. Keep the tags.\n"
+      << "No markdown. No bullets. No extra lines before <RISK>.\n\n"
 
-    return oss.str();
-}
+      << "<RISK>\n"
+      << "(Write 1-2 sentences summarizing overall risk level and meaning. If all risks are 0, state no abnormal findings.)\n"
+      << "</RISK>\n\n"
 
-/*
-    std::string buildClinicalDiagnosisPrompt(
-    const std::string& name,
-    int age,
-    const std::string& gender,
-    const std::string& visit,
-    float hr, float spo2, float temp, float resp, float sys, float dia,
-    int risk_hr, int risk_spo2, int risk_temp, int risk_resp, int risk_bp
-) {
-    std::ostringstream oss;
+      << "<DX>\n"
+      << "(Write 4-5 complete sentences, paragraph. Mention any abnormal vitals explicitly. If all risks are 0, state all vitals normal.)\n"
+      << "</DX>\n\n"
 
-    oss
-    << "You are a clinical summary generator for a senior engineering project.\n"
-    << "This is NOT a real medical diagnosis.\n\n"
-
-    << "Use ONLY the numeric values and risk levels provided below.\n"
-    << "Do NOT invent measurements, symptoms, history, or lab results.\n"
-    << "Do NOT invent or modify patient identity fields.\n"
-    << "Do NOT output placeholders, refusal text, or extra disclaimers.\n\n"
-
-    << "INTERPRETATION RULES:\n"
-    << "- Risk level 0 = normal / within expected range\n"
-    << "- Risk level 1 = mildly abnormal\n"
-    << "- Risk level 2 = moderately abnormal\n"
-    << "- Risk level 3 = severely abnormal\n"
-    << "- If ALL risk levels are 0, state that no abnormal findings are detected.\n"
-    << "- Base your wording strictly on risk levels and values.\n\n"
-
-    // IMPORTANT: Do NOT let the model print identity (it will hallucinate on small models).
-    << "OUTPUT RULES (FOLLOW EXACTLY):\n"
-    << "- Output ONLY these two sections, in this order:\n"
-    << "  1) Current Status of Diagnosis:\n"
-    << "  2) Treatment / Goal Plan:\n"
-    << "- Do NOT output Name, Age, Gender, or Date/Time.\n"
-    << "- Do NOT reprint the vitals list.\n"
-    << "- Do NOT add any other headings or sections.\n\n"
-
-    // Identity provided ONLY as context (not allowed in output)
-    << "Patient identity (context only; do not repeat in output):\n"
-    << "- Name: " << name << "\n"
-    << "- Age: " << age << "\n"
-    << "- Gender: " << gender << "\n"
-    << "- Date & Time of Visit: " << visit << "\n\n"
-
-    << "Patient Vitals (Averaged data):\n"
-    << "- HR: " << hr << " bpm\n"
-    << "- SpO2: " << spo2 << " %\n"
-    << "- Temperature: " << temp << " C\n"
-    << "- Respiratory Rate: " << resp << " rpm\n"
-    << "- Blood Pressure: " << sys << "/" << dia << " mmHg\n\n"
-
-    << "Risk Levels (Averaged):\n"
-    << "- HR Risk: " << risk_hr << "\n"
-    << "- SpO2 Risk: " << risk_spo2 << "\n"
-    << "- Temperature Risk: " << risk_temp << "\n"
-    << "- Respiratory Risk: " << risk_resp << "\n"
-    << "- Blood Pressure Risk: " << risk_bp << "\n\n"
-
-    // Keep exactly ONE disclaimer line inside the model output (as you wanted),
-    // but do not allow it to add more.
-    << "Include this disclaimer EXACTLY ONCE at the end of your output:\n"
-    << "\"**Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice**\"\n\n"
-
-    << "Current Status of Diagnosis:\n"
-    << "- Write exactly 2 to 4 complete sentences.\n"
-    << "- Describe overall physiological status using the provided risks.\n"
-    << "- Mention any mildly, moderately, or severely abnormal vitals explicitly.\n"
-    << "- If all risks are 0, explicitly state that all vitals are within normal limits.\n\n"
-
-    << "Treatment / Goal Plan:\n"
-    << "- Write exactly 2 to 4 bullet points.\n"
-    << "- Bullets should describe monitoring, follow-up, or reassessment only.\n"
-    << "- Do NOT recommend medications, procedures, or emergency actions.\n"
-    << "- If all risks are 0, recommend routine monitoring only.\n";
+      << "<PLAN>\n"
+      << "(Write 2-4 complete sentences, paragraph. Monitoring and follow-up only. No medications.)\n"
+      << "</PLAN>\n";
 
     return oss.str();
 }
-*/
-
 
 // ---------------- Send to llama-server ----------------
 std::string sendToLLMChat(const std::string& prompt) {
@@ -230,8 +210,6 @@ std::string sendToLLMChat(const std::string& prompt) {
 
     std::string response;
 
-
-
     CURL* curl = curl_easy_init();
     if (!curl) return "ERROR: CURL init failed";
 
@@ -245,15 +223,12 @@ std::string sendToLLMChat(const std::string& prompt) {
                 "{\"role\":\"user\",\"content\":\"" + jsonEscape(prompt) + "\"}"
             "],"
             "\"temperature\":0.1,"
-            "\"max_tokens\":350,"
-            "\"stop\":[\"</OUTPUT>\"]"
+            "\"max_tokens\":500"
         "}";
     
     std::cout << "\n===== JSON SENT TO LLM SERVER =====\n";
     std::cout << json << "\n";
     std::cout << "===================================\n\n";
-
-    
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -291,5 +266,6 @@ std::string sendToLLMChat(const std::string& prompt) {
 
     //UI gets only the clean two sections + disclaimer
     std::string content = extractChatContent(response);
-    return extractBetweenTags(content, "<OUTPUT>\n", "\n</OUTPUT>");
+    return content;
+    //return extractBetweenTags(content, "<OUTPUT>\n", "\n</OUTPUT>");
 }
