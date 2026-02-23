@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 static const uint32_t BAUD = 115200;
-static const uint8_t  SENSOR_PIN = 2;
+static const uint8_t  SENSOR_PIN = A7;
 static bool RESP_measurementStarted = 0;
 
 // Period
@@ -24,9 +24,9 @@ static unsigned long lastPrint = 0;
 static bool isInhale = 0;
 
 int inhale_counter = 0;
-const int inhale_counter_threshold = 2;
+const int inhale_counter_threshold = 1;
 int exhale_counter = 0;
-const int exhale_counter_threshold = 3;  //was 6
+const int exhale_counter_threshold = 6;  //was 6
 
 unsigned long prevInhale = 0;
 unsigned long now = 0;
@@ -77,11 +77,11 @@ float computeBPM_median() {
 }
 
 void RESP_startMeasurement() {
-  Serial.println("RESP_startMeasurement called");  // add this
-  static unsigned long lastStart = 0;
-  if(millis() - lastStart < 3000) return;
-  lastStart = millis();
-  Serial.println("RESP starting...");  // add this too
+  //Serial.println("RESP_startMeasurement called");  // add this
+  // static unsigned long lastStart = 0;
+  // if(millis() - lastStart < 3000) return;
+  // lastStart = millis();
+  //Serial.println("RESP starting...");  // add this too
 
   RESP_measurementStarted = 1;
   measurementStartTime = millis();
@@ -125,7 +125,7 @@ void RESP_update() {
     return;
 }
   
-  Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
+  //Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
   /*
   Serial.print("raw=");
   Serial.print(raw);
