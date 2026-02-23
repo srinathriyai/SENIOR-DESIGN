@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include "NEWHR_Sensor.h"
-#include "NEWTEMP_Sensor.h"
+#include "HR_Sensor.h"
+#include "TEMP_Sensor.h"
 #include "BP.h"
 #include "RESP.h"
 #include <WiFi.h>
