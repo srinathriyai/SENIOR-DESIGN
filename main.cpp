@@ -21,9 +21,9 @@ const char* WIFI_SSID = "iPhone";
 const char* WIFI_PASSWORD = "milliondollars";
 
 //PC server address - CHANGE to PC's local IP
-const char* PC_SERVER_URL = "http://172.20.10.8:8000/api/ingest";  //IP using ipconfig/ifconfig
+const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest";  //IP using ipconfig/ifconfig
 
-const char* PC_LIVE_URL = "http://172.20.10.8:8000/api/live";
+const char* PC_LIVE_URL = "http://172.20.10.5:8000/api/live";
 
 //Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -33,7 +33,7 @@ bool PS_check_pass = false;
 
 // LLM data output timing
 unsigned long lastLLMOutput = 0;
-const unsigned long LLM_OUTPUT_INTERVAL = 5000;  // Send to PC every 5 seconds
+const unsigned long LLM_OUTPUT_INTERVAL = 1000;  // Send to PC every 5 seconds
 
 void connectWiFi() {
     Serial.print("Connecting to WiFi");
@@ -176,6 +176,8 @@ void loop(){
         Serial.println("D7 PRESSED - STARTING HR+TEMP+RESP SENSORS");
         Serial.println("======================================");
         
+
+        //is_activated = 1;
         TEMP_startMeasurement();
         
         HR_startMeasurement();
@@ -212,16 +214,16 @@ void loop(){
                 if (millis() - lastPoll >= 1000) {
                     lastPoll = millis();
                     liveEnabled = getLiveEnabled();
-                    Serial.printf("liveEnabled=%s\n", liveEnabled ? "true" : "false");
+                    //Serial.printf("liveEnabled=%s\n", liveEnabled ? "true" : "false");
                 }
 
                 // If UI Live is OFF -> do NOT send POST 
                 if (!liveEnabled) {
-                    Serial.println("Live OFF -> skipping POST");
+                    //Serial.println("Live OFF -> skipping POST");
                     // don't send anything this cycle                }
                 } 
-                else 
-                {
+                //else 
+                //{
                     
 
                     float currentHR   = HR_getMeasurement();
@@ -274,7 +276,7 @@ void loop(){
                     }
     
                     http.end();
-                }    
+                //}    
             }
             //if WiFi disconnected, retry(every 20s to avoid spam)
             else{
@@ -287,5 +289,5 @@ void loop(){
             }
         }
 
-    }        
+    }          
 }
