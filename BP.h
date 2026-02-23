@@ -349,3 +349,10 @@ int tick_start_button(int state) {
 
   return state;
 }
+
+float BP_getSystolic(){
+    return systolic;
+}
+float BP_getDiastolic(){
+    return diastolic;
+}
