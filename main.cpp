@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include "HR_Sensor.h"
-#include "TEMP_Sensor.h"
+#include "NEWHR_Sensor.h"
+#include "NEWTEMP_Sensor.h"
 #include "BP.h"
 #include "RESP.h"
 #include <WiFi.h>
@@ -167,12 +167,13 @@ void loop(){
     //=============================================================================
 
     //HR sensor start loop based on button, will be changed to call from LLM or something
+    //pinMode(7, INPUT_PULLUP);
     bool currentD6 = digitalRead(7);
     if(lastD6State == HIGH && currentD6 == LOW){
         delay(50);
         
         Serial.println("\n======================================");
-        Serial.println("D6 PRESSED - STARTING HR+TEMP+RESP SENSORS");
+        Serial.println("D7 PRESSED - STARTING HR+TEMP+RESP SENSORS");
         Serial.println("======================================");
         
         TEMP_startMeasurement();
@@ -183,7 +184,7 @@ void loop(){
     }
     lastD6State = currentD6;
     
-    // Update HR and TEMP sensors (non-blocking)
+    //non-blocking
     TEMP_update();
     HR_update();
     RESP_update();
@@ -226,6 +227,8 @@ void loop(){
                     float currentHR   = HR_getMeasurement();
                     float currentO2   = O2_getMeasurement();
                     float currentTemp = TEMP_getMeasurement();
+                    float currentSystolic = BP_getSystolic();
+                    float currentDiastolic = BP_getDiastolic();
                     //2/17/26 - CHECK
                     float currentResp = RESP_getMeasurement();
 
@@ -236,8 +239,8 @@ void loop(){
                     // 2/17/26 - CHECK
                     doc["Resp"]  = currentResp;   // placeholder
                    
-                    doc["BP_sys"] = -1;//systolic; //placeholder
-                    doc["BP_dia"] = -1;//diastolic; //placeholder
+                    doc["BP_sys"] = currentSystolic;//systolic; //placeholder
+                    doc["BP_dia"] = currentDiastolic;//diastolic; //placeholder
     
                     static uint32_t seq = 0;
                     doc["source"] = "!!!!!!!THE_REAL_ESP32_SENSOR_MODS!!!!!!!";
