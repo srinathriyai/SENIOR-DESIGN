@@ -191,6 +191,7 @@ void loop(){
     HR_update();
     RESP_update();
 
+    //  HRIYAI EDITING 2/24/26 - LLM DATA TRANSMISSION 
 
     //=============================================================================
     //LLM DATA TRANSMISSION - Send to PC web server every 5 seconds
