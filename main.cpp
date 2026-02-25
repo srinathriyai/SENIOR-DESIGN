@@ -120,11 +120,6 @@ void setup(){
     tasks[i].period = air_pump_PERIOD;
     tasks[i].state = air_pump_INIT;
     tasks[i].TickFct = &tick_air_pump;
-    ++i;
-    tasks[i].elapsedTime = start_button_PERIOD;
-    tasks[i].period = start_button_PERIOD;
-    tasks[i].state = start_button_INIT;
-    tasks[i].TickFct = &tick_start_button;
 
     Serial.flush();
     
