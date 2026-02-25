@@ -100,10 +100,10 @@ void setup(){
     //=============================================================================
     
     //initialization
-    pinMode(in1, OUTPUT); digitalWrite(in1, LOW); // RELEASE ON
-    pinMode(in2, OUTPUT); digitalWrite(in2, LOW); // ^
-    pinMode(in3, OUTPUT); digitalWrite(in3, LOW); // MOTOR OFF
-    pinMode(in4, OUTPUT); digitalWrite(in4, LOW); // ^ 
+    pinMode(AIN1, OUTPUT); digitalWrite(AIN1, LOW); // RELEASE ON
+    pinMode(AIN2, OUTPUT); digitalWrite(AIN2, LOW); // ^
+    pinMode(BIN1, OUTPUT); digitalWrite(BIN1, LOW); // MOTOR OFF
+    pinMode(BIN2, OUTPUT); digitalWrite(BIN2, LOW); // ^ 
 
     unsigned char i = 0;
     tasks[i].elapsedTime = sample_pressure_PERIOD;
