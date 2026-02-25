@@ -49,10 +49,10 @@ unsigned long currentmillis = 0;
 Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
 
 // Pump & valve pin declarations
-int in1 = 3;
-int in2 = 2;
-int in3 = 5;
+int in3 = 5; // Pump
 int in4 = 4;
+int in1 = 3; // Valve
+int in2 = 2;
 
 // State enumerations
 enum sample_pressure{sample_pressure_INIT, sample_pressure_CALIBRATE, sample_pressure_ON, sample_pressure_OFF};
@@ -358,3 +358,4 @@ float BP_getSystolic(){
 float BP_getDiastolic(){
     return diastolic;
 }
+
