@@ -1,4 +1,4 @@
-#include "Adafruit_MPRLS.h"
+#include <Adafruit_MPRLS.h>
 #include "Highpass.h"
 #include <Arduino.h>
 
@@ -29,7 +29,7 @@ const unsigned long release_valve_PERIOD = 1000;
 const unsigned long start_button_PERIOD = 100;
 const unsigned long GCD_PERIOD = 100;
 
-#define NUM_TASKS 4
+#define NUM_TASKS 3
 
 typedef struct _task{
 	signed 	 char state; 		//Task's current state
@@ -49,10 +49,10 @@ unsigned long currentmillis = 0;
 Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
 
 // Pump & valve pin declarations
-int in3 = 5; // Pump
-int in4 = 4;
-int in1 = 3; // Valve
-int in2 = 2;
+int BIN1 = 5; // Pump
+int BIN2 = 4;
+int AIN1 = 3; // Valve
+int AIN2 = 2;
 
 // State enumerations
 enum sample_pressure{sample_pressure_INIT, sample_pressure_CALIBRATE, sample_pressure_ON, sample_pressure_OFF};
@@ -63,10 +63,6 @@ int tick_air_pump(int state);
 
 enum release_valve{release_valve_INIT, release_valve_OPEN, release_valve_CLOSED};
 int tick_release_valve(int state);
-
-// Replace with check for start signal in full implementation
-enum start_button{start_button_INIT, start_button_ON};
-int tick_start_button(int state);
 
 //=============================================================================
 // Variables for sampling pressure
@@ -262,7 +258,7 @@ int tick_release_valve(int state) {
   switch(state) {
     case release_valve_INIT:
       Serial.print("valve init \n");
-      digitalWrite(in1, LOW); digitalWrite(in2, LOW);
+      digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW);
       is_releasing = 1;
       state = release_valve_OPEN;
       break;
@@ -280,11 +276,11 @@ int tick_release_valve(int state) {
 
   switch(state) {
     case release_valve_CLOSED:
-      digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
+      digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
       //Serial.print("NOT RELEASING \n");
       break;
     case release_valve_OPEN:
-      digitalWrite(in1, LOW); digitalWrite(in2, LOW); // RELEASING
+      digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW); // RELEASING
       //Serial.print("RELEASING \n");
       break;
   }
@@ -296,13 +292,13 @@ int tick_air_pump(int state) {
   switch(state) {
     case air_pump_INIT:
       Serial.print("pump init \n");
-      digitalWrite(in3, LOW); digitalWrite(in4, LOW); // PUMP OFF (DEFAULT STATE)
+      digitalWrite(BIN1, LOW); digitalWrite(BIN2, LOW); // PUMP OFF (DEFAULT STATE)
       is_pumping = 0;
       state = air_pump_OFF;
       break;
     case air_pump_OFF:
       if (is_pumping == 1) {
-        digitalWrite(in3, HIGH); digitalWrite(in4, LOW);
+        digitalWrite(BIN1, HIGH); digitalWrite(BIN2, LOW);
         // delay(1000);
         state = air_pump_ON;
       }
@@ -316,36 +312,14 @@ int tick_air_pump(int state) {
 
   switch(state) {
     case air_pump_ON:
-      digitalWrite(in3, HIGH); digitalWrite(in4, LOW); // PUMP ON
+      digitalWrite(BIN1, HIGH); digitalWrite(BIN2, LOW); // PUMP ON
       //Serial.print("Pump on \n");
       Serial.flush();
       break;
     case air_pump_OFF:
-      digitalWrite(in3, LOW); digitalWrite(in4, LOW); // PUMP OFF
+      digitalWrite(BIN1, LOW); digitalWrite(BIN2, LOW); // PUMP OFF
       //Serial.print("Pump off \n");
       Serial.flush();
-      break;
-  }
-
-  return state;
-}
-
-int tick_start_button(int state) {
-  switch(state) {
-    case start_button_INIT:
-      // state = start_button_ON;
-      // delay(1000);
-      break;
-    case start_button_ON:
-      // if (analogRead(A0) > 1000) {
-      //   is_activated = 1;
-        // Serial.println(analogRead(A0));
-      //}
-      break;
-  }
-
-  switch(state) {
-    case start_button_ON:
       break;
   }
 
@@ -358,4 +332,3 @@ float BP_getSystolic(){
 float BP_getDiastolic(){
     return diastolic;
 }
-
