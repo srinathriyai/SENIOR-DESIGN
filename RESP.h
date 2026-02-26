@@ -24,17 +24,13 @@ static unsigned long lastPrint = 0;
 static bool isInhale = 0;
 
 int inhale_counter = 0;
-const int inhale_counter_threshold = 1;
+const int inhale_counter_threshold = 2;
 int exhale_counter = 0;
 const int exhale_counter_threshold = 6;  //was 6
 
 unsigned long prevInhale = 0;
 unsigned long now = 0;
 unsigned long dt = 0;
-
-//int prevInhale = 0;
-//int now = 0;
-//int dt = 0;
 
 unsigned long measurementStartTime = 0;
 
@@ -77,19 +73,13 @@ float computeBPM_median() {
 }
 
 void RESP_startMeasurement() {
-  //Serial.println("RESP_startMeasurement called");  // add this
-  // static unsigned long lastStart = 0;
-  // if(millis() - lastStart < 3000) return;
-  // lastStart = millis();
-  //Serial.println("RESP starting...");  // add this too
+  Serial.println("RESP_startMeasurement called");  // add this
 
   RESP_measurementStarted = 1;
-  measurementStartTime = millis();
   bufferCount = 0;
   isInhale = 0;
   inhale_counter = 0;
   exhale_counter = 0;
-  prevInhale = millis();
 }
 
 
@@ -102,10 +92,16 @@ void RESP_init() {
 
 void RESP_update() {
   now = millis();
+  //only do detection if measurement started
+  // Check if ready to start
+  if(RESP_measurementStarted == 0) {
+    return;
+  }
+
+  // Check if period has elapsed
   if(now - lastRespSample < SAMPLE_MS){
     return;
   }
-  lastRespSample = now;
 
   int raw = analogRead(SENSOR_PIN);
 
@@ -113,27 +109,15 @@ void RESP_update() {
   prev_filt = filt;
   filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * (float)raw;
   int delta = filt - prev_filt;
-
-  //only do detection if measurement started
-  // Check if ready to start
-  if(RESP_measurementStarted == 0) {
-    return;
-  }
-
-  if(millis() - measurementStartTime < 1500) {
-    prevInhale = millis();  // keep resetting so first real dt is from end of settle period
-    return;
-}
   
   //Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
-  /*
-  Serial.print("raw=");
-  Serial.print(raw);
-  Serial.print(" filt=");
-  Serial.print((int)lroundf(filt));
-  Serial.print(" delta=");
-  Serial.println(delta);
-  */
+  // Serial.print("raw=");
+  // Serial.print(raw);
+  // Serial.print(" filt=");
+  // Serial.print((int)lroundf(filt));
+  // Serial.print(" delta=");
+  // Serial.println(delta);
+
   // Inhale logic
   if((delta < 0) && (isInhale == 0)) {
     ++inhale_counter;
@@ -147,8 +131,9 @@ void RESP_update() {
     prevInhale = now;
     isInhale = 1;
     inhale_counter = 0;
-    //pushInterval(dt);
-    if(dt > 2000 && dt < 15000) pushInterval(dt);   //gating values to be within normal
+    pushInterval(dt);
+
+    // if(dt > 2000 && dt < 15000) pushInterval(dt);   //gating values to be within normal
     Serial.println(computeBPM_median(), 1);
     Serial.print("Inhale detected, dt: ");
     Serial.println(dt);
@@ -174,3 +159,4 @@ float RESP_getMeasurement(){
 }
 
 #endif
+
