@@ -226,8 +226,8 @@ void loop(){
                 doc["Resp"]   = (currentResp <= 0) ? -1 : currentResp;
                 //doc["BP_sys"] = bpSensorReady ? BP_getSystolic()  : -1;
                 //doc["BP_dia"] = bpSensorReady ? BP_getDiastolic() : -1;
-                doc["BP_sys"] = bpSensorReady ? BP_getSystolic()  : (bpReading ? -2 : -1);
-                doc["BP_dia"] = bpSensorReady ? BP_getDiastolic() : (bpReading ? -2 : -1);
+                doc["BP_sys"] = bpSensorReady ? BP_getSystolic()  : (BP_Vitals_Measuring ? -2 : -1);
+                doc["BP_dia"] = bpSensorReady ? BP_getDiastolic() : (BP_Vitals_Measuring ? -2 : -1);
 
 
                 static uint32_t seq = 0;
