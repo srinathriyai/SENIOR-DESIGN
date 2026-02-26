@@ -35,8 +35,8 @@ float calibratedTemp = 0;
 float currentTemp = 1;          //value grabbed from main for LLM 
 
 //initialize temperature sensor
-void TEMP_init();
-void TEMP_startMeasurement();
+//void TEMP_init();
+//void TEMP_startMeasurement();
 
 void TEMP_update();     //update sampling, called in main.cpp loop()
 
@@ -85,17 +85,9 @@ void TEMP_startMeasurement(){
     sampleCount = 0;
 }
 
-float TEMP_getMeasurement(){
-    if(calibratedTemp == 0){
-        currentTemp = 0;
-    }
-    else currentTemp = calibratedTemp;
-
-    return currentTemp;
-}
 
 void TEMP_update() {
-    if(!sensorReady || !measuring) return;
+    if(!sensorReady) return;
 
     unsigned long now = millis();
     if(now - lastSampleTime >= SAMPLE_DELAY){
@@ -104,10 +96,10 @@ void TEMP_update() {
         float ambientC = mlx.readAmbientTempC();
         float objectC = mlx.readObjectTempC();
 
-        if(isnan(ambientC) || isnan(objectC) || ambientC < 0 || ambientC > 100 || objectC < 0 || objectC > 110){
-            Serial.println("WARN: Invalid TEMP reading, skipping sample");
-            return;
-        }
+        //if(isnan(ambientC) || isnan(objectC) || ambientC < 0 || ambientC > 100 || objectC < 0 || objectC > 110){
+            //Serial.println("WARN: Invalid TEMP reading, skipping sample");
+            //return;
+        //}
 
         float ambientF = ambientC * 9.0 / 5.0 + 32.0;
         float objectF = objectC * 9.0 / 5.0 + 32.0;
@@ -129,8 +121,8 @@ void TEMP_update() {
         //value calibration
         if(objectAvg < 80.0 || objectAvg > 120.0) {
             Serial.println("ERROR: Reading abnormal. Check sensor.");
-            calibratedTemp = 0;
-        } else if(objectAvg < 96.0) {
+        }
+        if(objectAvg < 96.0) {
             calibratedTemp = 98.0 + (objectAvg - floor(objectAvg));
         } else if(objectAvg > 103.0) {
             calibratedTemp = 101.0 + (objectAvg - floor(objectAvg));
@@ -139,7 +131,7 @@ void TEMP_update() {
         }
 
         Serial.println("=== TEMP MEASUREMENT COMPLETE ===");
-        Serial.print("ambientAvg = "); Serial.println(ambientAvg);
+        //Serial.print("ambientAvg = "); Serial.println(ambientAvg);
         Serial.print("raw objectAvg = "); Serial.println(objectAvg);
         Serial.print("calibratedTemp = "); Serial.println(calibratedTemp);
     }
@@ -155,6 +147,15 @@ float TEMP_getObjectAvg() {
 
 float TEMP_getAmbientAvg(){
     return ambientAvg;
+}
+
+float TEMP_getMeasurement(){
+    if(calibratedTemp == 0){
+        currentTemp = 0;
+    }
+    else currentTemp = calibratedTemp;
+
+    return currentTemp;
 }
 
 #endif
