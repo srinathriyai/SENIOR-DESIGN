@@ -657,7 +657,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                     <div class="nav">
                         <button id="navPatients" class="active" onclick="go('patients')">Patient Profiles</button>
                         <button id="navLive" onclick="go('live')">Live Vitals</button>
-                        <button id="navDx" onclick="go('diagnosis')">Clinical Diagnosis</button>
+                        <button id="navDx" onclick="go('diagnosis')">Clinical Diagnoses</button>
                     </div>
                     <div style="margin-top:16px;" class="muted">
                         Run a 3-minute session to generate a diagnosis from averaged session data.
@@ -1163,7 +1163,10 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 document.getElementById('spo2Value').textContent = fmt(v.spo2, " %");
                                 document.getElementById('tempValue').textContent = fmt(v.temp, " °C", 1);
                                 document.getElementById('respValue').textContent = fmt(v.resp, " rpm");
-                                document.getElementById('bpValue').textContent   = (Number(v.sys) < 0 || Number(v.dia) < 0) ? "N/A" : (Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg");
+                                document.getElementById('bpValue').textContent = 
+                                    (Number(v.sys) === -2) ? "Reading..." :
+                                    (Number(v.sys) < 0)    ? "N/A" :
+                                    (Math.round(v.sys) + "/" + Math.round(v.dia) + " mmHg");
 
                                 const hrR = document.getElementById('hrRisk');
                                 const spR = document.getElementById('spo2Risk');
@@ -1176,8 +1179,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 spR.textContent  = stale ? "Risk --" : "Risk " + v.risk_spo2; spR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_spo2);
                                 tR.textContent   = stale ? "Risk --" : "Risk " + v.risk_temp; tR.style.background   = stale ? "#bdc3c7" : riskColorJS(v.risk_temp);
                                 rrR.textContent  = stale ? "Risk --" : "Risk " + v.risk_resp; rrR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_resp);
-                                bpR.textContent  = stale ? "Risk --" : "Risk " + v.risk_bp;   bpR.style.background  = stale ? "#bdc3c7" : riskColorJS(v.risk_bp);
-
+                                bpR.textContent  = stale ? "Risk --" : (Number(v.sys) === -2 ? "Risk --" : "Risk " + v.risk_bp);
+                                bpR.style.background  = stale ? "#bdc3c7" : (Number(v.sys) === -2 ? "#bdc3c7" : riskColorJS(v.risk_bp));
                             } catch (e) {}
                         }
 

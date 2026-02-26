@@ -18,6 +18,9 @@ bool is_releasing = 0;
 bool is_reading = 0;
 bool bpSensorReady = 0;
 
+// LLM vitals flag
+bool BP_Vitals_Measuring = 0;
+
 // Values
 float curr_pressure = 0;
 //=============================================================================
@@ -114,6 +117,9 @@ int tick_sample_pressure(int state) {
         baseline_pressure = baseline_pressure / baseline_samples;
         Serial.print("Baseline Pressure: "); Serial.println(baseline_pressure);
         is_pumping = 1; // TEMP 0
+        
+        BP_Vitals_Measuring = 1; // LLM flag - cuff started, now reading vitals...
+        
         state = sample_pressure_ON;
       }
       break;
@@ -171,6 +177,9 @@ int tick_sample_pressure(int state) {
         Serial.print("Dia: "); Serial.println(diastolic);
 
         bpSensorReady = 1;
+
+        BP_Vitals_Measuring = 0; // LLM flag - cuff finished, vitals ready!
+        
         state = sample_pressure_OFF;
       }
       break;
@@ -269,7 +278,7 @@ int tick_release_valve(int state) {
       break;
     case release_valve_OPEN:
       if (is_releasing == 0) {
-        state = release_valve_CLOSED;
+        state = release_valve_CLOSED;clear
       }
       break;
   }
