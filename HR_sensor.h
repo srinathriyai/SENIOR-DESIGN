@@ -303,8 +303,10 @@ void HR_update(){
                             bpmFiltered = bpm;          //set first beat to initial
                         }
                         else{ //put new reading with average
-                        
-                            bpmFiltered = BPM_ALPHA*bpm + (1.0f - BPM_ALPHA)*bpmFiltered;
+                            float diff = abs(bpm - bpmFiltered) / bpmFiltered;
+                            if(diff < 0.20f){
+                                bpmFiltered = BPM_ALPHA*bpm + (1.0f - BPM_ALPHA)*bpmFiltered;
+                            }
                         }
                         
                         //print beat notification
@@ -410,7 +412,6 @@ void HR_update(){
             
         }
     }
-   
 }
 
 float HR_getMeasurement(){
