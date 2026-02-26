@@ -303,6 +303,8 @@ void HR_update(){
                             bpmFiltered = bpm;          //set first beat to initial
                         }
                         else{ //put new reading with average
+                            float diff = abs(bpm - bpmFiltered) / bpmFiltered;
+                            if(diff < 0.40f){
                                 bpmFiltered = BPM_ALPHA*bpm + (1.0f - BPM_ALPHA)*bpmFiltered;
                             }
                         }
@@ -340,76 +342,92 @@ void HR_update(){
         redACSum += abs(redAC);
         acSampleCount++;            //continue the sampling
 
-        //IF measurements time ends
-        if(now - startTime >= MEASUREMENT_TIME) { 
-            hrActive = false;           //turn off active stuff
-            //fingerOnSensor = false;  //removed for continous looping unless finger is removed
-            measurementStarted = false;
 
-            Serial.println("\n========== MEASUREMENT COMPLETE ==========");
-            Serial.print("Total beats detected: ");
-            Serial.println(bpmCount);
-            /*
-            Serial.print("IR AC range: ");
-            Serial.print(minIRAC, 0);
-            Serial.print(" to ");
-            Serial.println(maxIRAC, 0);
-            Serial.print("Red AC range: ");
-            Serial.print(minRedAC, 0);
-            Serial.print(" to ");
-            Serial.println(maxRedAC, 0);
-            */
-
-            //oxygen calcuation (spO2)
-            if(bpmCount >= 5){        //min5 beats for reliable measurement
-                if(acSampleCount > 0){
-                    float irACAvg = irACSum / acSampleCount;    //average AC values
-                    float redACAvg = redACSum / acSampleCount;
-                    
-                    //R value calcuation:
-                    //ratio comparing Red vs IR pulsatile signals (calculates oxygen)
-                    float R = (redACAvg/irACAvg) * (irDC/redDC);
-                    
-                    //spO2 formula from clinical quadratic formula for MAX30102 sensor
-                    //variable R ranges 0.4-1.0 for SpO2 at 85-100%
-                    float spo2 = -45.060f*R*R + 30.354f*R + 94.845f;
-                    spo2 = constrain(spo2, 85, 100);  //constraing data  to human skin range
-
-                    
-                    if(spo2Smoothed == 0){      //exponential smoothing for gotten SpO2
-                        spo2Smoothed = spo2;
-                    }
-                    else{
-                        spo2Smoothed = SPO2_ALPHA*spo2 + (1.0f - SPO2_ALPHA)*spo2Smoothed; //take 40% of old spO2 and the rest new to smooth
-                    }
-
-                    //if(spo2Smoothed < 90){
-                    //    spo2Smoothed = 0;
-                    //}
-
-                    //output data
-                    Serial.print("Average BPM: ");
-                    Serial.println(bpmFiltered, 1);
-                    /*
-                    Serial.print("R-value: ");
-                    Serial.println(R, 3);
-                    */
-                    Serial.print("Calculated SpO2: ");
-                    Serial.print(spo2, 1);
-                    Serial.println("%");
-                    Serial.print("Smoothed SpO2: ");
-                    Serial.print(spo2Smoothed, 1);
-                    Serial.println("%");
-                }
-            }
+        if (acSampleCount > 0 && bpmCount >= 5) {  //for every 5 beats calculate spo2
+            float irACAvg = irACSum / acSampleCount;
+            float redACAvg = redACSum / acSampleCount;
+    
+            float R = (redACAvg / irACAvg) * (irDC / redDC);
+            float spo2 = -45.060f * R * R + 30.354f * R + 94.845f;
+            spo2 = constrain(spo2, 85, 100);
+    
+            if(spo2Smoothed == 0){
+                spo2Smoothed = spo2;
+            } 
             else{
-                Serial.println("WARNING: Insufficient beats detected");
+                spo2Smoothed = SPO2_ALPHA * spo2 + (1.0f - SPO2_ALPHA) * spo2Smoothed;
             }
+            }
+        }
+
+        //serial output
+        if(diagnosticMode && (now - lastDiagnostic >= 2000)) {  //interval for outputting serial CAN BE REMOVED on final
+            lastDiagnostic = now;
+            if(bpmFiltered > 0){
+                Serial.print("Average BPM: ");
+                Serial.println(bpmFiltered, 1);
+            }
+            if(spo2Smoothed > 0){
+                Serial.print("Smoothed SpO2: ");
+                Serial.print(spo2Smoothed, 1);
+                Serial.println("%");
+            }
+            Serial.print("Beat count: ");
+            Serial.println(bpmCount);
+        }
+
+        //IF measurements time ends
+        // if(now - startTime >= MEASUREMENT_TIME) { 
+        //     //hrActive = false;           //turn off active stuff
+        //     //fingerOnSensor = false;  //removed for continous looping unless finger is removed
+        //     measurementStarted = false;
+
+        //     Serial.println("\n========== MEASUREMENT COMPLETE ==========");
+        //     Serial.print("Total beats detected: ");
+        //     Serial.println(bpmCount);
+        //     /*
+        //     Serial.print("IR AC range: ");
+        //     Serial.print(minIRAC, 0);
+        //     Serial.print(" to ");
+        //     Serial.println(maxIRAC, 0);
+        //     Serial.print("Red AC range: ");
+        //     Serial.print(minRedAC, 0);
+        //     Serial.print(" to ");
+        //     Serial.println(maxRedAC, 0);
+        //     */
+
+        //     //oxygen calcuation (spO2)
+        //     if(bpmCount >= 5){        //min5 beats for reliable measurement
+        //         if(acSampleCount > 0){
+
+
+        //             //if(spo2Smoothed < 90){
+        //             //    spo2Smoothed = 0;
+        //             //}
+
+        //             //output data
+        //             Serial.print("Average BPM: ");
+        //             Serial.println(bpmFiltered, 1);
+        //             /*
+        //             Serial.print("R-value: ");
+        //             Serial.println(R, 3);
+        //             */
+        //             Serial.print("Calculated SpO2: ");
+        //             Serial.print(spo2, 1);
+        //             Serial.println("%");
+        //             Serial.print("Smoothed SpO2: ");
+        //             Serial.print(spo2Smoothed, 1);
+        //             Serial.println("%");
+        //         }
+        //     }
+        //     else{
+        //         Serial.println("WARNING: Insufficient beats detected");
+        //     }
             //Serial.println("===========================================\n");
             //Serial.println("Press button to measure again.");
             
-        }
-    }
+        //}
+    //}
 }
 
 float HR_getMeasurement(){
