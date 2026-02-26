@@ -130,7 +130,11 @@ void TEMP_update() {
             calibratedTemp = objectAvg;
         }
 
-        Serial.println("=== TEMP MEASUREMENT COMPLETE ===");
+    }
+
+    if(now - lastSampleTime >= 3000) {  //interval for outputting serial CAN BE REMOVED on final
+        lastSampleTime = now;
+        Serial.println("===== TEMP MEASUREMENT COMPLETE =====");
         //Serial.print("ambientAvg = "); Serial.println(ambientAvg);
         Serial.print("raw objectAvg = "); Serial.println(objectAvg);
         Serial.print("calibratedTemp = "); Serial.println(calibratedTemp);
