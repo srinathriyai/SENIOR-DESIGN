@@ -101,15 +101,15 @@ void TEMP_update() {
             //return;
         //}
 
-        float ambientF = ambientC * 9.0 / 5.0 + 32.0;
-        float objectF = objectC * 9.0 / 5.0 + 32.0;
+        //float ambientF = ambientC * 9.0 / 5.0 + 32.0;
+        //float objectF = objectC * 9.0 / 5.0 + 32.0;
 
-        ambientSum += ambientF;
-        objectSum += objectF;
+        ambientSum += ambientC;
+        objectSum += objectC;
         sampleCount++;
 
-        Serial.print("ambient ="); Serial.print(ambientF); Serial.print("*F\t");
-        Serial.print("object ="); Serial.print(objectF); Serial.println("*F");
+        Serial.print("ambient ="); Serial.print(ambientC); Serial.print("*C\t");
+        Serial.print("object ="); Serial.print(objectC); Serial.println("*C");
     }
 
     if(now - measureStartTime >= SAMPLE_TIME && sampleCount > 0){
@@ -119,13 +119,13 @@ void TEMP_update() {
         objectAvg = objectSum / sampleCount;
 
         //value calibration
-        if(objectAvg < 80.0 || objectAvg > 120.0) {
-            Serial.println("ERROR: Reading abnormal. Check sensor.");
-        }
-        if(objectAvg < 96.0) {
-            calibratedTemp = 98.0 + (objectAvg - floor(objectAvg));
-        } else if(objectAvg > 103.0) {
-            calibratedTemp = 101.0 + (objectAvg - floor(objectAvg));
+        // if(objectAvg < 80.0 || objectAvg > 120.0) {
+        //     Serial.println("ERROR: Reading abnormal. Check sensor.");
+        // }
+        if(objectAvg < 35.0 || objectAvg > 38.5) {
+            calibratedTemp = 36.5 + (objectAvg - floor(objectAvg));
+        } else if(objectAvg > 39.0) {
+            calibratedTemp = 39.0 + (objectAvg - floor(objectAvg));
         } else {
             calibratedTemp = objectAvg;
         }
