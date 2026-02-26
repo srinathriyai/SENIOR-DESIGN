@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include "NEWHR_Sensor.h"
-#include "NEWTEMP_Sensor.h"
+#include "HR_Sensor.h"
+#include "TEMP_Sensor.h"
 #include "BP.h"
 #include "RESP.h"
 #include <WiFi.h>
@@ -153,8 +153,8 @@ void setup(){
     RESP_init();
     
     Serial.println("\n=== READY ===");
-    Serial.println("Press D6 to start HR+TEMP+RESP measurements");
-    Serial.println("Press A0 to start BP measurement");
+    Serial.println("Press Start on UI to start sensing vitals");
+    //Serial.println("Press A0 to start BP measurement");
     
 }
 
@@ -182,7 +182,7 @@ void loop(){
     if(!lastSenseState && senseNow){
 
         Serial.println("UI triggered - STARTING SENSORS");
-        
+
         is_activated = 1;
         TEMP_startMeasurement();
         HR_startMeasurement();
@@ -233,8 +233,8 @@ void loop(){
                 float currentResp = RESP_getMeasurement();
 
                 StaticJsonDocument<256> doc;
-                doc["HR"]     = (HR_isActive() || currentHR  <= 0) ? -1 : currentHR;
-                doc["SpO2"]   = (HR_isActive() || currentO2  <= 0) ? -1 : currentO2;
+                doc["HR"]     = (currentHR  <= 0) ? -1 : currentHR;
+                doc["SpO2"]   = (currentO2  <= 0) ? -1 : currentO2;
                 doc["Temp"]   = (currentTemp <= 0) ? -1 : currentTemp;
                 doc["Resp"]   = (currentResp <= 0) ? -1 : currentResp;
                 //doc["BP_sys"] = bpSensorReady ? BP_getSystolic()  : -1;
