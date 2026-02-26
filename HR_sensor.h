@@ -144,30 +144,13 @@ void HR_startMeasurement(){
     }
 }
 
-float HR_getMeasurement(){
-    if(bpmFiltered == 0){
-        currentHR = 0;
-    }
-    else currentHR = bpmFiltered;
-
-    return currentHR;
-}
-
-float O2_getMeasurement(){
-    if(spo2Smoothed == 0){
-        currentO2 = 0;
-    }
-    else currentO2 = spo2Smoothed;
-
-    return currentO2;
-}
-
 //main loop ___ called repeatedly from main loop: for button handling, sampling and beat detection
 void HR_update(){
 
     uint32_t now = millis();
-    
+
     //chheck button with debouncing to prevent false triggers
+    /*
     if(!hrActive && (now - lastButtonCheck >= BUTTON_DEBOUNCE)){
         if(digitalRead(BUTTON_PIN) == LOW) {  //button pressed (pulled to GND)
             lastButtonCheck = now;
@@ -175,14 +158,16 @@ void HR_update(){
             Serial.println("Button pressed. Place finger...");
         }
     }
+    */
 
     //exit early if no measurement is active
-    if(!hrActive){
-        return; }
-
+    // if(!hrActive){
+    //     return; 
+    // }
     if(now - lastHRsample >= SAMPLE_DELAY) { // Checks if it's time to execute update
       lastHRsample = now;
-    } else {
+    } 
+    else{
       return;
     }
 
@@ -224,7 +209,6 @@ void HR_update(){
     //only start measuring after finger has been stable for START_DELAY ms
     if(fingerOnSensor && (now - fingerDetectedTime >= START_DELAY)){
 
-        
         if(!measurementStarted){      //Initializing measurements
             measurementStarted = true;
             startTime = now;
@@ -359,7 +343,7 @@ void HR_update(){
         //IF measurements time ends
         if(now - startTime >= MEASUREMENT_TIME) { 
             hrActive = false;           //turn off active stuff
-            fingerOnSensor = false;
+            //fingerOnSensor = false;  //removed for continous looping unless finger is removed
             measurementStarted = false;
 
             Serial.println("\n========== MEASUREMENT COMPLETE ==========");
@@ -421,10 +405,30 @@ void HR_update(){
             else{
                 Serial.println("WARNING: Insufficient beats detected");
             }
-            Serial.println("===========================================\n");
-            Serial.println("Press button to measure again.");
+            //Serial.println("===========================================\n");
+            //Serial.println("Press button to measure again.");
+            
         }
     }
+   
+}
+
+float HR_getMeasurement(){
+    if(bpmFiltered == 0){
+        currentHR = 0;
+    }
+    else currentHR = bpmFiltered;
+
+    return currentHR;
+}
+
+float O2_getMeasurement(){
+    if(spo2Smoothed == 0){
+        currentO2 = 0;
+    }
+    else currentO2 = spo2Smoothed;
+
+    return currentO2;
 }
 
 bool HR_isActive() { //main.cpp checks if sampling in progress
