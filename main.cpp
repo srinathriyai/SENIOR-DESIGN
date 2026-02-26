@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include "HR_Sensor.h"
-#include "TEMP_Sensor.h"
+#include "NEWHR_Sensor.h"
+#include "NEWTEMP_Sensor.h"
 #include "BP.h"
 #include "RESP.h"
 #include <WiFi.h>
@@ -24,6 +24,7 @@ const char* WIFI_PASSWORD = "milliondollars";
 const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest";  //IP using ipconfig/ifconfig
 
 const char* PC_LIVE_URL = "http://172.20.10.5:8000/api/live";
+const char* PC_LIVE_URL_SENSE = "http://172.20.10.5:8000/api/sense";
 
 //Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -84,6 +85,17 @@ bool getLiveEnabled() {
 
     if (code != 200) return false;            // fail-safe
     return body.indexOf("\"on\":true") >= 0;  // expects {"on":true/false}
+}
+
+bool getSenseEnabled() {
+    HTTPClient http;
+    http.setTimeout(1500);
+    http.begin(PC_LIVE_URL_SENSE);
+    int code = http.GET();
+    String body = http.getString();
+    http.end();
+    if (code != 200) return false;            // fail-safe
+    return body.indexOf("\"start\":true") >= 0;  // expects {"on":true/false}
 }
 
 void setup(){
@@ -163,24 +175,25 @@ void loop(){
 
     //HR sensor start loop based on button, will be changed to call from LLM or something
     //pinMode(7, INPUT_PULLUP);
-    bool currentD6 = digitalRead(7);
-    if(lastD6State == HIGH && currentD6 == LOW){
-        delay(50);
-        
-        Serial.println("\n======================================");
-        Serial.println("D7 PRESSED - STARTING HR+TEMP+RESP SENSORS");
-        Serial.println("======================================");
-        
+    //bool currentD6 = digitalRead(7);   //button press testing
+    //UI button press loop, waiting for UI 'start machine'
+    static bool lastSenseState = false;
+    bool senseNow = getSenseEnabled();
+    if(!lastSenseState && senseNow){
 
-        //is_activated = 1;
+        Serial.println("UI triggered - STARTING SENSORS");
+        
+        is_activated = 1;
         TEMP_startMeasurement();
-        
         HR_startMeasurement();
-
         RESP_startMeasurement();
     }
-    lastD6State = currentD6;
-    
+    lastSenseState = senseNow;
+
+    //if(lastD6State == HIGH && currentD6 == LOW){
+        //is_activated = 1;
+    //lastD6State = currentD6;
+
     //non-blocking
     TEMP_update();
     HR_update();
