@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 
+float RPM = 0;
 static const uint32_t BAUD = 115200;
 static const uint8_t  SENSOR_PIN = A7;
 static bool RESP_measurementStarted = 0;
@@ -16,10 +17,6 @@ static const float FILTER_ALPHA = 0.12f;
 float filt = 0.0f;
 float prev_filt = 0.0f;
 
-// Debugging
-static const uint32_t PRINT_MS = 250;
-static unsigned long lastPrint = 0;
-
 // Analysis
 static bool isInhale = 0;
 
@@ -32,13 +29,10 @@ unsigned long prevInhale = 0;
 unsigned long now = 0;
 unsigned long dt = 0;
 
-unsigned long measurementStartTime = 0;
-
 // Buffer (Averages out abnormal readings)
-static const int MAX_BUFFER = 6;
+static const int MAX_BUFFER = 12;
 uint32_t buffervals[MAX_BUFFER];
 int bufferCount = 0;
-
 
 void pushInterval(uint32_t dt) {
   if (bufferCount < MAX_BUFFER) {
@@ -50,7 +44,7 @@ void pushInterval(uint32_t dt) {
   }
 }
 
-float computeBPM_median() {
+float computeRPM_median() {
   if (bufferCount == 0) return 0.0f;
 
   uint32_t tmp[MAX_BUFFER];
@@ -76,10 +70,10 @@ void RESP_startMeasurement() {
   Serial.println("RESP_startMeasurement called");  // add this
 
   RESP_measurementStarted = 1;
-  bufferCount = 0;
-  isInhale = 0;
-  inhale_counter = 0;
-  exhale_counter = 0;
+  // bufferCount = 0;
+  // isInhale = 0;
+  // inhale_counter = 0;
+  // exhale_counter = 0;
 }
 
 
@@ -101,6 +95,8 @@ void RESP_update() {
   // Check if period has elapsed
   if(now - lastRespSample < SAMPLE_MS){
     return;
+  } else {
+    lastRespSample = now;
   }
 
   int raw = analogRead(SENSOR_PIN);
@@ -110,7 +106,7 @@ void RESP_update() {
   filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * (float)raw;
   int delta = filt - prev_filt;
   
-  //Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
+  // Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
   // Serial.print("raw=");
   // Serial.print(raw);
   // Serial.print(" filt=");
@@ -134,7 +130,8 @@ void RESP_update() {
     pushInterval(dt);
 
     // if(dt > 2000 && dt < 15000) pushInterval(dt);   //gating values to be within normal
-    Serial.println(computeBPM_median(), 1);
+    RPM = computeRPM_median();
+    Serial.println(RPM, 1);
     Serial.print("Inhale detected, dt: ");
     Serial.println(dt);
   }
@@ -155,8 +152,10 @@ void RESP_update() {
 
 
 float RESP_getMeasurement(){
-    return computeBPM_median();
+  if (RPM <= 3) {
+    return -1;
+  }
+  return RPM;
 }
 
 #endif
-
