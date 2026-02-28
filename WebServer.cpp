@@ -411,6 +411,18 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
         res.set_content("OK", "text/plain; charset=utf-8");
     });
+
+    //new endpoint for sending a value to the browser to toggle the live vitals
+    svr.Get("/api/sense", [&](const httplib::Request&, httplib::Response& res) {
+        std::string json = std::string("{\"start\":") + (g_senseEnabled ? "true" : "false") + "}";
+        res.set_content(json, "application/json; charset=utf-8");
+    });
+
+    svr.Post("/api/sense", [&](const httplib::Request& req, httplib::Response& res) {
+        bool on = (req.body.find("true") != std::string::npos);
+        g_senseEnabled = on;
+        res.set_content("OK", "text/plain; charset=utf-8");
+    });
     
     // ---------------------------------------------------------
     // GET /api/live  -> return whether live mode is enabled
@@ -1375,7 +1387,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         // Vitals session logic: start, stop, save report, generate diagnosis
                         // -----------------------------
 
-                        function startVitalsSession() {
+                        async function startVitalsSession() {
                             if (sessionRunning) return;
 
                             if (activePatientId === null) return alert("Select a patient first.");
@@ -1383,6 +1395,13 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             if (!p.name || !p.gender || !p.age) return alert("Complete patient profile first.");
 
                             sessionRunning = true;
+
+                            await fetch("/api/sense", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ start: true })
+                            });
+
                             secondsLeft = SESSION_SECONDS;
                             sessionSamples = [];
                             updateTimerUI();
@@ -1406,7 +1425,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             }, 1000);
                         }
 
-                        function stopSession() {
+                        async function stopSession() {
                             if (!sessionRunning) return;
                             clearInterval(countdownTimer);
                             clearInterval(logTimer);
@@ -1420,16 +1439,28 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             document.getElementById("stopBtn").disabled = true;
                             document.getElementById("sessionStatus").textContent = "Session stopped.";
                             document.getElementById("dxText").textContent = "Session was stopped. Run a new session to generate diagnosis.";
+
+                            // Tell ESP32 to stop sensing
+                            fetch("/api/sense", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ start: false })
+                            });
                         }
 
-                        function stopVitalsSessionAndSaveReport() {
+                        async function stopVitalsSessionAndSaveReport() {
                             if (!sessionRunning) return;
-
                             sessionRunning = false;
                             clearInterval(countdownTimer);
                             clearInterval(logTimer);
                             countdownTimer = null;
                             logTimer = null;
+
+                             await fetch("/api/sense", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ start: false })
+                            });
 
                             lockPatientControls(false);
                             document.getElementById("startBtn").disabled = false;
