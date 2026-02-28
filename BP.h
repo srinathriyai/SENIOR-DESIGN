@@ -6,7 +6,7 @@
 // FOR CIRCUIT DIAGRAM REFER TO: FINAL CIRCUIT DIAGRAM
 // =================================================================================================
 // Filter declarations
-HighPass<1> hp1(1.33, 10, true);
+HighPass<1> hp1(0.5, 10, true);
 
 //=============================================================================
 // Task communication 
@@ -27,7 +27,7 @@ float curr_pressure = 0;
 
 // Periods
 const unsigned long sample_pressure_PERIOD = 100;
-const unsigned long air_pump_PERIOD = 1000;
+const unsigned long air_pump_PERIOD = 100;
 const unsigned long release_valve_PERIOD = 1000;
 const unsigned long start_button_PERIOD = 100;
 const unsigned long GCD_PERIOD = 100;
@@ -125,21 +125,21 @@ int tick_sample_pressure(int state) {
       break;
     case sample_pressure_ON:
        if(is_activated == 0) { // When completed measurement
-      //   for(int i = 0; i <= pa_index; ++i) {
-      //     Serial.print(pressure_array[i]); Serial.print(", ");
-      //   }
-      //   Serial.print("\n");
-      //   for(int i = 0; i <= pa_index; ++i) {
-      //     Serial.print(pressure_array_HP[i]); Serial.print(", ");
-      //   }
-      //   for(int i = 0; i <= pa_index; ++i) {
-      //     curr_val = pressure_array_HP[i];
-      //     if(curr_val > max_HP) {
-      //       max_HP = curr_val;
-      //       max_HP_index = i;
-      //     }
-      //   }
-      //   Serial.print("\n");
+        for(int i = 0; i <= pa_index; ++i) {
+          Serial.print(pressure_array[i]); Serial.print(", ");
+        }
+        Serial.print("\n");
+        for(int i = 0; i <= pa_index; ++i) {
+          Serial.print(pressure_array_HP[i]); Serial.print(", ");
+        }
+        for(int i = 0; i <= pa_index; ++i) {
+          curr_val = pressure_array_HP[i];
+          if(curr_val > max_HP) {
+            max_HP = curr_val;
+            max_HP_index = i;
+          }
+        }
+        Serial.print("\n");
 
         // Systolic 
         for(int i = 0; i < max_HP_index; ++i) { // Inclusive 0 to exclusive max_HP_index
@@ -215,7 +215,7 @@ int tick_sample_pressure(int state) {
       delta_pressure = curr_pressure - prev_pressure;
 
       // Serial.println(prev_pressure); 
-      //Serial.println(curr_pressure);
+      Serial.println(curr_pressure);
       // Serial.println(delta_pressure);
       curr_pressure_HP = hp1.filt(curr_pressure);
 
@@ -228,23 +228,38 @@ int tick_sample_pressure(int state) {
       //   ++counter_reading_delay;
       // }
       if(is_reading == 1) {
-        //Serial.print("Reading \n");
-        // Changes obtained from experimentation:
-        // Only take the value if it's within the expected threshold (threshold obtained through experimentation) Currently: [-0.25 to 2]
-        if(curr_pressure_HP < 0) {
-          if(curr_pressure_HP > -0.25){
-            curr_pressure_HP = curr_pressure_HP * -1;
-            pressure_array_HP[pa_index] = curr_pressure_HP;
-            pressure_array[pa_index] = curr_pressure;
-            pa_index = pa_index + 1;
-            //Serial.println(pa_index);
-          }
-        } else {
-          if(curr_pressure_HP < 2) {
-            pressure_array_HP[pa_index] = curr_pressure_HP;
-            pressure_array[pa_index] = curr_pressure;
-            pa_index = pa_index + 1;
-            //Serial.println(pa_index);
+        // Serial.print("READING");
+        // THESE CHANGES WERE MADE THROUGH EXPERIMENTATION
+        // Only take the value if it's within the expected threshold (threshold obtained through experimentation) Currently: [-0.5 to 2]
+        if(curr_pressure <= 180) {
+          //Serial.print("Reading \n");
+          if(curr_pressure_HP < 0) { // Negative Cases
+            if(curr_pressure_HP > -0.5){
+              curr_pressure_HP = curr_pressure_HP * -1;
+              pressure_array_HP[pa_index] = curr_pressure_HP;
+              pressure_array[pa_index] = curr_pressure;
+              pa_index = pa_index + 1;
+            }
+          } else { // Positive Cases
+            if (curr_pressure >= 140) {
+              if (curr_pressure_HP < 1) {
+                pressure_array_HP[pa_index] = curr_pressure_HP;
+                pressure_array[pa_index] = curr_pressure;
+                pa_index = pa_index + 1;
+              }
+            } else if(curr_pressure <= 75) {
+              if (curr_pressure_HP < 1.25) {
+                pressure_array_HP[pa_index] = curr_pressure_HP;
+                pressure_array[pa_index] = curr_pressure;
+                pa_index = pa_index + 1;
+              }
+            } else {
+              if(curr_pressure_HP < 2) {
+                pressure_array_HP[pa_index] = curr_pressure_HP;
+                pressure_array[pa_index] = curr_pressure;
+                pa_index = pa_index + 1;
+              }
+            }
           }
         }
       }
@@ -278,7 +293,7 @@ int tick_release_valve(int state) {
       break;
     case release_valve_OPEN:
       if (is_releasing == 0) {
-        state = release_valve_CLOSED;clear
+        state = release_valve_CLOSED;
       }
       break;
   }
@@ -286,11 +301,11 @@ int tick_release_valve(int state) {
   switch(state) {
     case release_valve_CLOSED:
       digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
-      //Serial.print("NOT RELEASING \n");
+      Serial.print("NOT RELEASING \n");
       break;
     case release_valve_OPEN:
       digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW); // RELEASING
-      //Serial.print("RELEASING \n");
+      Serial.print("RELEASING \n");
       break;
   }
 
