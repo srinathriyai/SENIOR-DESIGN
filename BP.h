@@ -124,22 +124,22 @@ int tick_sample_pressure(int state) {
       }
       break;
     case sample_pressure_ON:
-       if(is_activated == 0) { // When completed measurement
-        for(int i = 0; i <= pa_index; ++i) {
-          Serial.print(pressure_array[i]); Serial.print(", ");
-        }
-        Serial.print("\n");
-        for(int i = 0; i <= pa_index; ++i) {
-          Serial.print(pressure_array_HP[i]); Serial.print(", ");
-        }
-        for(int i = 0; i <= pa_index; ++i) {
-          curr_val = pressure_array_HP[i];
-          if(curr_val > max_HP) {
-            max_HP = curr_val;
-            max_HP_index = i;
-          }
-        }
-        Serial.print("\n");
+      if(is_activated == 0) { // When completed measurement
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   Serial.print(pressure_array[i]); Serial.print(", ");
+        // }
+        // Serial.print("\n");
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   Serial.print(pressure_array_HP[i]); Serial.print(", ");
+        // }
+        // for(int i = 0; i <= pa_index; ++i) {
+        //   curr_val = pressure_array_HP[i];
+        //   if(curr_val > max_HP) {
+        //     max_HP = curr_val;
+        //     max_HP_index = i;
+        //   }
+        // }
+        // Serial.print("\n");
 
         // Systolic 
         for(int i = 0; i < max_HP_index; ++i) { // Inclusive 0 to exclusive max_HP_index
@@ -215,7 +215,7 @@ int tick_sample_pressure(int state) {
       delta_pressure = curr_pressure - prev_pressure;
 
       // Serial.println(prev_pressure); 
-      Serial.println(curr_pressure);
+      // Serial.println(curr_pressure);
       // Serial.println(delta_pressure);
       curr_pressure_HP = hp1.filt(curr_pressure);
 
@@ -281,7 +281,7 @@ int tick_sample_pressure(int state) {
 int tick_release_valve(int state) {
   switch(state) {
     case release_valve_INIT:
-      Serial.print("valve init \n");
+      // Serial.print("valve init \n");
       digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW);
       is_releasing = 1;
       state = release_valve_OPEN;
@@ -301,11 +301,11 @@ int tick_release_valve(int state) {
   switch(state) {
     case release_valve_CLOSED:
       digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
-      Serial.print("NOT RELEASING \n");
+      // Serial.print("NOT RELEASING \n");
       break;
     case release_valve_OPEN:
       digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW); // RELEASING
-      Serial.print("RELEASING \n");
+      // Serial.print("RELEASING \n");
       break;
   }
 
@@ -315,7 +315,7 @@ int tick_release_valve(int state) {
 int tick_air_pump(int state) {
   switch(state) {
     case air_pump_INIT:
-      Serial.print("pump init \n");
+      // Serial.print("pump init \n");
       digitalWrite(BIN1, LOW); digitalWrite(BIN2, LOW); // PUMP OFF (DEFAULT STATE)
       is_pumping = 0;
       state = air_pump_OFF;
