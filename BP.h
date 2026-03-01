@@ -117,7 +117,8 @@ int tick_sample_pressure(int state) {
         baseline_pressure = baseline_pressure / baseline_samples;
         Serial.print("Baseline Pressure: "); Serial.println(baseline_pressure);
         is_pumping = 1; // TEMP 0
-        
+
+		bpSensorReady = 0;
         BP_Vitals_Measuring = 1; // LLM flag - cuff started, now reading vitals...
         
         state = sample_pressure_ON;
@@ -177,7 +178,6 @@ int tick_sample_pressure(int state) {
         Serial.print("Dia: "); Serial.println(diastolic);
 
         bpSensorReady = 1;
-
         BP_Vitals_Measuring = 0; // LLM flag - cuff finished, vitals ready!
         
         state = sample_pressure_OFF;
@@ -356,3 +356,4 @@ float BP_getSystolic(){
 float BP_getDiastolic(){
     return diastolic;
 }
+
