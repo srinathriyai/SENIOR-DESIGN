@@ -21,10 +21,10 @@ const char* WIFI_SSID = "iPhone";
 const char* WIFI_PASSWORD = "milliondollars";
 
 //PC server address - CHANGE to PC's local IP
-const char* PC_SERVER_URL = "http://172.20.10.5:8000/api/ingest";  //IP using ipconfig/ifconfig
+const char* PC_SERVER_URL = "http://172.20.10.3:8000/api/ingest";  //IP using ipconfig/ifconfig
 
-const char* PC_LIVE_URL = "http://172.20.10.5:8000/api/live";
-const char* PC_LIVE_URL_SENSE = "http://172.20.10.5:8000/api/sense";
+const char* PC_LIVE_URL = "http://172.20.10.3:8000/api/live";
+const char* PC_LIVE_URL_SENSE = "http://172.20.10.3:8000/api/sense";
 
 //Button tracking for HR/TEMP system
 bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
@@ -34,7 +34,7 @@ bool PS_check_pass = false;
 
 // LLM data output timing
 unsigned long lastLLMOutput = 0;
-const unsigned long LLM_OUTPUT_INTERVAL = 1000;  // Send to PC every 5 seconds
+const unsigned long LLM_OUTPUT_INTERVAL = 3000;  //changed from 1 to 3 seconds 
 
 void connectWiFi() {
     Serial.print("Connecting to WiFi");
@@ -77,7 +77,7 @@ void connectWiFi() {
 
 bool getLiveEnabled() {
     HTTPClient http;
-    http.setTimeout(1500);
+    http.setTimeout(800);           //CHANGED 02/28: to 800 to minimize missing samples
     http.begin(PC_LIVE_URL);
     int code = http.GET();
     String body = http.getString();
@@ -89,7 +89,7 @@ bool getLiveEnabled() {
 
 bool getSenseEnabled() {
     HTTPClient http;
-    http.setTimeout(1500);
+    http.setTimeout(800);           //CHANGED 02/28: to 800 to minimize missing samples
     http.begin(PC_LIVE_URL_SENSE);
     int code = http.GET();
     String body = http.getString();
@@ -99,6 +99,7 @@ bool getSenseEnabled() {
 }
 
 void setup(){
+    while(!Serial);
     Serial.begin(115200);
     delay(2000);
     Serial.println("SETUP START");
@@ -178,7 +179,17 @@ void loop(){
     //bool currentD6 = digitalRead(7);   //button press testing
     //UI button press loop, waiting for UI 'start machine'
     static bool lastSenseState = false;
-    bool senseNow = getSenseEnabled();
+
+    //ADDED 02/28: to limit loop call (same as getLiveEnabled)
+    static uint32_t lastSensePoll = 0;
+    static bool senseEnabled = false;
+    if (millis() - lastSensePoll >= 2000) {
+        lastSensePoll = millis();
+        senseEnabled = getSenseEnabled();
+    }
+    bool senseNow = senseEnabled;
+
+
     if(!lastSenseState && senseNow){
 
         Serial.println("UI triggered - STARTING SENSORS");
@@ -193,11 +204,14 @@ void loop(){
     //if(lastD6State == HIGH && currentD6 == LOW){
         //is_activated = 1;
     //lastD6State = currentD6;
-
+    
     //non-blocking
     TEMP_update();
+    yield();            //ADDED 02/28: help interrupt stacking
     HR_update();
+    yield();
     RESP_update();
+    yield();
 
     //  HRIYAI EDITING 2/24/26 - LLM DATA TRANSMISSION 
 
@@ -225,7 +239,7 @@ void loop(){
             {
                 Serial.println("Live OFF -> skipping POST");
             } 
-            else 
+            else  
             {
                 float currentHR   = HR_getMeasurement();
                 float currentO2   = O2_getMeasurement();
@@ -251,22 +265,22 @@ void loop(){
                 String jsonString;
                 serializeJson(doc, jsonString);
 
-                Serial.println("=== DEBUG: JSON TO BE SENT ===");
-                Serial.println(jsonString);
-                Serial.println("================================");
+                // Serial.println("=== DEBUG: JSON TO BE SENT ===");
+                // Serial.println(jsonString);
+                // Serial.println("================================");
 
                 HTTPClient http;
-                http.setTimeout(3000);
+                http.setTimeout(2000);   //CHANGED 02/28: to 2000 to minimize missing samples
                 http.begin(PC_SERVER_URL);
                 http.addHeader("Content-Type", "application/json");
 
                 int httpCode = http.POST(jsonString);
-                Serial.printf("HTTP %d\n", httpCode);
+                //Serial.printf("HTTP %d\n", httpCode);
                 
                 if (httpCode > 0) 
                 {
-                    Serial.print("Response body: ");
-                    Serial.println(http.getString());
+                    //Serial.print("Response body: ");
+                    //Serial.println(http.getString());
                 } 
                 else 
                 {
