@@ -163,10 +163,8 @@ float RESP_getMeasurement(){
   if(bufferCount < 3){        //ADDED 02/28: make sure atleast 3 values are found first to get better range
     return -1;
   }
-  if (RPM <= 3) {
-    return -1;
-  }
   return RPM;
 }
 
 #endif
+
