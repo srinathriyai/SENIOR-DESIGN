@@ -672,7 +672,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         <button id="navDx" onclick="go('diagnosis')">Clinical Diagnoses</button>
                     </div>
                     <div style="margin-top:16px;" class="muted">
-                        Run a 3-minute session to generate a diagnosis from averaged session data.
+                        Set up a patient profile, then run a live vitals session from the connected device. Each 3-minute cycle saves a CSV and generates an AI clinical diagnosis report.                
                     </div>
                 </aside>
 
@@ -761,7 +761,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             <div class="card" style="margin-bottom:14px;">
                                 <div class="vital-name">Vitals Session</div>
                                 <div class="muted" style="margin-top:6px;">
-                                    Logs 1 sample/sec for 3 minutes, then saves a CSV and generates diagnosis.
+                                    3-min recording → 1-min buffer → repeats. Stop Session ends the loop. Toggle Live to pause data without losing progress.
                                 </div>
 
                                 <div style="display:flex; align-items:center; gap:12px; margin-top:12px;">
@@ -769,7 +769,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                     <button id="stopBtn" class="mini-btn" onclick="stopSession()" disabled>Stop Session</button>
 
                                     <button id="liveToggleBtn" class="mini-btn" onclick="toggleLive()">Live: ON</button>
-                                    <div class="muted">Time left: <span id="timerLabel">3:00</span></div>
+                                    <div class="muted"><span id="timerPrefix">Time left: </span><span id="timerLabel">3:00</span></div>
                                     <div class="muted" id="sessionStatus"></div>
                                 </div>
                             </div>
@@ -1231,6 +1231,10 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         const LOG_HZ = 1;
                         const SESSION_SECONDS = 180;
 
+                        //FOR THE TIMER BUFFER
+                        const BUFFER_SECONDS = 60;
+                        let sessionPhase = 'idle'; // 'idle' | 'running' | 'buffer'
+
                         let sessionRunning = false;
                         let secondsLeft = SESSION_SECONDS;
 
@@ -1243,7 +1247,13 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         function updateTimerUI() {
                             const m = Math.floor(secondsLeft / 60);
                             const s = secondsLeft % 60;
-                            document.getElementById("timerLabel").textContent = `${m}:${pad2(s)}`;
+                            if (sessionPhase === 'buffer') {
+                                document.getElementById("timerPrefix").textContent = "";
+                                document.getElementById("timerLabel").textContent = "NEXT SESSION IN: " + m + ":" + pad2(s);
+                            } else {
+                                document.getElementById("timerPrefix").textContent = "Time left: ";
+                                document.getElementById("timerLabel").textContent = m + ":" + pad2(s);
+                            }
                         }
 
                         async function sampleVitalsOnce() {
@@ -1259,13 +1269,13 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             });
                         }
 
-                        function buildCSV(patient, samples) {
+                       function buildCSV(patient, samples) {
                             const lines = [];
-                            lines.push(`patient_name,${patient.name}`);
-                            lines.push(`gender,${patient.gender}`);
-                            lines.push(`age,${patient.age}`);
-                            lines.push(`session_start,${samples[0]?.ts_iso || ""}`);
-                            lines.push(`session_duration_s,${SESSION_SECONDS}`);
+                            lines.push("patient_name," + patient.name);
+                            lines.push("gender," + patient.gender);
+                            lines.push("age," + patient.age);
+                            lines.push("session_start," + (samples[0] ? samples[0].ts_iso : ""));
+                            lines.push("session_duration_s," + SESSION_SECONDS);
                             lines.push("");
                             lines.push("timestamp_iso,HR_bpm,SpO2_pct,Temp_C,Resp_rpm,BP_sys,BP_dia,risk_hr,risk_spo2,risk_temp,risk_resp,risk_bp");
                             for (const s of samples) {
@@ -1276,7 +1286,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 ].join(","));
                             }
                             return lines.join("\n");
-                        }
+                        } 
 
                         function computeAverages(samples) {
                             const n = samples.length || 1;
@@ -1395,6 +1405,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             if (!p.name || !p.gender || !p.age) return alert("Complete patient profile first.");
 
                             sessionRunning = true;
+                            sessionPhase = 'recording';
 
                             await fetch("/api/sense", {
                                 method: "POST",
@@ -1421,7 +1432,95 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             countdownTimer = setInterval(() => {
                                 secondsLeft--;
                                 updateTimerUI();
-                                if (secondsLeft <= 0) stopVitalsSessionAndSaveReport();
+                                if (secondsLeft <= 0) endRecordingAndStartBuffer(); // automatically transition to buffer phase when time's up
+                            }, 1000);
+                        }
+
+                        async function endRecordingAndStartBuffer() 
+                        {
+                            clearInterval(countdownTimer);
+                            clearInterval(logTimer);
+                            countdownTimer = null;
+                            logTimer = null;
+
+                            await fetch("/api/sense", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ start: false })
+                            });
+
+                            // save report + run LLM async
+                            if (sessionSamples.length > 0)
+                            {
+                                const p = patients[activePatientId];
+                                const now = new Date();
+                                const stamp = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}_${pad2(now.getHours())}-${pad2(now.getMinutes())}-${pad2(now.getSeconds())}`;
+                                const safeName = p.name.replace(/[^a-z0-9]+/gi, "_");
+                                const fname = `${activePatientId === 0 ? "PatientA" : "PatientB"}_${safeName}_${stamp}.csv`;
+                                const csv = buildCSV(p, sessionSamples);
+                                const reportId = "r_" + Math.random().toString(16).slice(2) + "_" + Date.now();
+
+                                reports.push({
+                                    id: reportId,
+                                    filename: fname,
+                                    createdAtIso: now.toISOString(),
+                                    patientLabel: `${activePatientId === 0 ? "Patient A" : "Patient B"}: ${p.name}`,
+                                    csvText: csv,
+                                    sampleCount: sessionSamples.length
+                                });
+                                saveReports();
+                                renderReports();
+
+                                patients[activePatientId].lastExport = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+                                savePatientsToStorage();
+                                renderPatientsUI();
+
+                                // launch LLM - dont await, it runs alongside the buffer countdown
+                                generateDiagnosisFromSession(reportId, p, sessionSamples).catch(() => {
+                                    document.getElementById("sessionStatus").textContent = "Diagnosis failed. Next Session starting soon.";
+                                });    
+                            }
+
+                            // enter buffer phase
+                            sessionPhase = 'buffer';
+                            secondsLeft = BUFFER_SECONDS;
+                            document.getElementById("sessionStatus").textContent = "";
+                            updateTimerUI();
+
+                            countdownTimer = setInterval(() => {
+                                secondsLeft--;
+                                updateTimerUI();
+                                if (secondsLeft <= 0) {
+                                    clearInterval(countdownTimer);
+                                    countdownTimer = null;
+                                    if (sessionRunning) restartRecording(); // auto-restart
+                                }
+                            }, 1000);       
+                        }
+
+                        async function restartRecording() {
+                            sessionPhase = 'recording';
+                            secondsLeft = SESSION_SECONDS;
+                            sessionSamples = [];
+                            updateTimerUI();
+
+                            await fetch("/api/sense", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ start: true })
+                            });
+
+                            document.getElementById("sessionStatus").textContent = "Recording…";
+                            document.getElementById("dxStatus").textContent = "";
+                            document.getElementById("dxText").textContent = "Recording session… diagnosis will generate after 3 minutes.";
+
+                            sampleVitalsOnce().catch(() => {});
+                            logTimer = setInterval(() => sampleVitalsOnce().catch(() => {}), 1000 / LOG_HZ);
+
+                            countdownTimer = setInterval(() => {
+                                secondsLeft--;
+                                updateTimerUI();
+                                if (secondsLeft <= 0) endRecordingAndStartBuffer();
                             }, 1000);
                         }
 
@@ -1432,6 +1531,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             countdownTimer = null;
                             logTimer = null;
                             sessionRunning = false;
+                            sessionPhase = 'idle';
+                             
                             secondsLeft = SESSION_SECONDS;
                             updateTimerUI();
                             lockPatientControls(false);
