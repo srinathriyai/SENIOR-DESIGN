@@ -67,7 +67,7 @@ float computeRPM_median() {
 }
 
 void RESP_startMeasurement() {
-  Serial.println("RESP_startMeasurement called");  // add this
+  //Serial.println("RESP_startMeasurement called");  // add this
 
   RESP_measurementStarted = 1;
   // bufferCount = 0;
@@ -82,15 +82,13 @@ void RESP_init() {
   // Initialize filter and baseline using first reading
   int x0 = analogRead(SENSOR_PIN);
   filt = (float)x0;
+  RESP_measurementStarted = 1;    //ADDED 02/28: automatically start taking 
 }
 
 void RESP_update() {
   now = millis();
   //only do detection if measurement started
-  // Check if ready to start
-  if(RESP_measurementStarted == 0) {
-    return;
-  }
+  // Check if ready to start -- REMOVED 02/28, made autostart in init
 
   // Check if period has elapsed
   if(now - lastRespSample < SAMPLE_MS){
@@ -106,7 +104,7 @@ void RESP_update() {
   filt = (1.0f - FILTER_ALPHA) * filt + FILTER_ALPHA * (float)raw;
   int delta = filt - prev_filt;
   
-  // Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
+  //Serial.printf("R=%d F=%d D=%d\n", raw, (int)lroundf(filt), delta);
   // Serial.print("raw=");
   // Serial.print(raw);
   // Serial.print(" filt=");
@@ -123,15 +121,25 @@ void RESP_update() {
 
   if(inhale_counter >= inhale_counter_threshold) {
     now = millis();
+    static bool firstInhale = true;
+
     dt = now - prevInhale;
     prevInhale = now;
     isInhale = 1;
     inhale_counter = 0;
-    pushInterval(dt);
+    //pushInterval(dt);   //removed
+    
+    //ADDED 02/28: gating first value to discard noise
+    if(!firstInhale && dt > 2000 && dt < 15000){  //only grab inhales between 4-30RPM worthy
+      pushInterval(dt);
+      RPM = computeRPM_median();
+      //Serial.println(RPM,1);     //can uncomment for debug
+    }
+    firstInhale = false;
 
     // if(dt > 2000 && dt < 15000) pushInterval(dt);   //gating values to be within normal
-    RPM = computeRPM_median();
-    Serial.println(RPM, 1);
+    //RPM = computeRPM_median();
+    //Serial.println(RPM, 1);
     Serial.print("Inhale detected, dt: ");
     Serial.println(dt);
   }
@@ -152,6 +160,9 @@ void RESP_update() {
 
 
 float RESP_getMeasurement(){
+  if(bufferCount < 3){        //ADDED 02/28: make sure atleast 3 values are found first to get better range
+    return -1;
+  }
   if (RPM <= 3) {
     return -1;
   }
