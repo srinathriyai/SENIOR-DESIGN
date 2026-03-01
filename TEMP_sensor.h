@@ -76,7 +76,7 @@ void TEMP_startMeasurement(){
     if(!sensorReady || measuring){  //whenever sensor isnt sampling return
         return;}
     
-    Serial.println("\n=== TEMP MEASUREMENT START ==="); //re-initialize variables
+    //Serial.println("\n=== TEMP MEASUREMENT START ==="); //re-initialize variables
     measuring = true;
     measureStartTime = millis();
     lastSampleTime = 0;
@@ -90,51 +90,47 @@ void TEMP_update() {
     if(!sensorReady) return;
 
     unsigned long now = millis();
+    static unsigned long lastSerialPrint = 0;   //ADDED 02/28: separate timer for second serial loop
+
     if(now - lastSampleTime >= SAMPLE_DELAY){
         lastSampleTime = now;
 
         float ambientC = mlx.readAmbientTempC();
         float objectC = mlx.readObjectTempC();
 
-        //if(isnan(ambientC) || isnan(objectC) || ambientC < 0 || ambientC > 100 || objectC < 0 || objectC > 110){
-            //Serial.println("WARN: Invalid TEMP reading, skipping sample");
-            //return;
-        //}
-
-        //float ambientF = ambientC * 9.0 / 5.0 + 32.0;
-        //float objectF = objectC * 9.0 / 5.0 + 32.0;
-
         ambientSum += ambientC;
         objectSum += objectC;
         sampleCount++;
+        
+        //ADDED 02/28: add running average on every sample, not just at 15s
+        float runningAvg = objectSum / sampleCount;
+        objectAvg = runningAvg;  //set average before calibrating
+        if(runningAvg < 35.0){
+          calibratedTemp = 36.5;  //too low, clamp
 
-        Serial.print("ambient ="); Serial.print(ambientC); Serial.print("*C\t");
-        Serial.print("object ="); Serial.print(objectC); Serial.println("*C");
+        }else if(runningAvg > 39.0){
+          calibratedTemp = 39.0 + (runningAvg - floor(runningAvg));  //fever range
+        }
+        else{
+           calibratedTemp = runningAvg;            //normal range, pass through
+        }
+        
+        //Serial.print("ambient ="); Serial.print(ambientC); Serial.print("*C\t");
+        //Serial.print("object ="); Serial.print(objectC); Serial.println("*C");
     }
 
-    if(now - measureStartTime >= SAMPLE_TIME && sampleCount > 0){
+    if(measuring && now - measureStartTime >= SAMPLE_TIME && sampleCount > 0){
         measuring = false;
 
         ambientAvg = ambientSum / sampleCount;
         objectAvg = objectSum / sampleCount;
 
-        //value calibration
-        // if(objectAvg < 80.0 || objectAvg > 120.0) {
-        //     Serial.println("ERROR: Reading abnormal. Check sensor.");
-        // }
-        if(objectAvg < 35.0 || objectAvg > 38.5) {
-            calibratedTemp = 36.5 + (objectAvg - floor(objectAvg));
-        } else if(objectAvg > 39.0) {
-            calibratedTemp = 39.0 + (objectAvg - floor(objectAvg));
-        } else {
-            calibratedTemp = objectAvg;
-        }
-
+        //removed callibration from here 02/28
     }
 
-    if(now - lastSampleTime >= 3000) {  //interval for outputting serial CAN BE REMOVED on final
-        lastSampleTime = now;
-        Serial.println("===== TEMP MEASUREMENT COMPLETE =====");
+    if(now - lastSerialPrint >= 4000) {  //interval for outputting serial CAN BE REMOVED on final
+        lastSerialPrint = now;
+        Serial.println("===== TEMP MEASUREMENT =====");
         //Serial.print("ambientAvg = "); Serial.println(ambientAvg);
         Serial.print("raw objectAvg = "); Serial.println(objectAvg);
         Serial.print("calibratedTemp = "); Serial.println(calibratedTemp);
