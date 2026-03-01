@@ -232,7 +232,7 @@ void loop(){
             {
                 lastPoll = millis();
                 liveEnabled = getLiveEnabled();
-                Serial.printf("liveEnabled=%s\n", liveEnabled ? "true" : "false");
+                //Serial.printf("liveEnabled=%s\n", liveEnabled ? "true" : "false");
             }
 
             if (!liveEnabled) 
