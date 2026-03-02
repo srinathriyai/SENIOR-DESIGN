@@ -263,7 +263,6 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
       ++counter_calibrate;
       break;
     case sample_pressure_ON:
-    {
       prev_pressure = curr_pressure;
       curr_pressure = (mpr.readPressure() * hPa_to_mmHg) - baseline_pressure; // Using a set value for atmopsheric pressure from testing for now
       
@@ -332,7 +331,6 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
         is_reading = 0;
       }
       break;
-    }
     case sample_pressure_OFF:
       //Serial.print("NOT SAMPLING ");
       break;
@@ -417,4 +415,5 @@ float BP_getSystolic(){
 float BP_getDiastolic(){
     return diastolic;
 }
+
 
