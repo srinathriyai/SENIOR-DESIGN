@@ -214,14 +214,14 @@ void HR_update(){
             startTime = now;
             
             //measurement variables
-            bpmFiltered = 0;
+            if(bpmFiltered == 0) bpmFiltered = 0; //ADDED 03/01
             bpmCount = 0;
             irACSum = 0;
             redACSum = 0;
             acSampleCount = 0;
             lastIRAC = 0;
             lastBeatTime = 0;
-            spo2Smoothed = 0;
+            //spo2Smoothed = 0;
             
             //peak/valley detection
             peakValue = 0;
@@ -361,19 +361,19 @@ void HR_update(){
         }
 
         //serial output
-        if(diagnosticMode && (now - lastDiagnostic >= 2000)) {  //interval for outputting serial CAN BE REMOVED on final
+        if(diagnosticMode && (now - lastDiagnostic >= 4000)) {  //interval for outputting serial CAN BE REMOVED on final
             lastDiagnostic = now;
-            if(bpmFiltered > 0){
-                Serial.print("Average BPM: ");
-                Serial.println(bpmFiltered, 1);
-            }
+            //if(bpmFiltered > 0){
+                //Serial.print("Average BPM: ");
+                //Serial.println(bpmFiltered, 1);
+           // }
             if(spo2Smoothed > 0){
                 Serial.print("Smoothed SpO2: ");
                 Serial.print(spo2Smoothed, 1);
                 Serial.println("%");
             }
-            Serial.print("Beat count: ");
-            Serial.println(bpmCount);
+            //Serial.print("Beat count: ");
+            //Serial.println(bpmCount);
         }
 
         //IF measurements time ends
