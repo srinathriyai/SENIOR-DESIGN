@@ -130,10 +130,10 @@ void TEMP_update() {
 
     if(now - lastSerialPrint >= 4000) {  //interval for outputting serial CAN BE REMOVED on final
         lastSerialPrint = now;
-        Serial.println("===== TEMP MEASUREMENT =====");
+        //Serial.println("===== TEMP MEASUREMENT =====");
         //Serial.print("ambientAvg = "); Serial.println(ambientAvg);
-        Serial.print("raw objectAvg = "); Serial.println(objectAvg);
-        Serial.print("calibratedTemp = "); Serial.println(calibratedTemp);
+        //Serial.print("raw objectAvg = "); Serial.println(objectAvg);
+        Serial.print("Temperature = "); Serial.print(calibratedTemp); Serial.println("°C");
     }
 }
 
