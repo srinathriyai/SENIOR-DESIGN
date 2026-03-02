@@ -32,6 +32,9 @@ bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 // BP sensor status
 bool PS_check_pass = false;
 
+static unsigned long lastBPTrigger = -120000;  //ADDED 03/01: so BP doesn't activate if http post fails
+const unsigned long BP_COOLDOWN = 120000;  //2 min interval between BP sampling
+
 // LLM data output timing
 unsigned long lastLLMOutput = 0;
 const unsigned long LLM_OUTPUT_INTERVAL = 3000;  //changed from 1 to 3 seconds 
@@ -193,8 +196,13 @@ void loop(){
     if(!lastSenseState && senseNow){
 
         Serial.println("UI triggered - STARTING SENSORS");
+        //ADDED 03/01: can only trigger BP once every 2 min to avoid triggering upon http post fail
+        unsigned long now = millis();
+        if(now - lastBPTrigger >= BP_COOLDOWN){
+            lastBPTrigger = now;
+            is_activated = 1;
+        }
 
-        is_activated = 1;
         TEMP_startMeasurement();
         HR_startMeasurement();
         RESP_startMeasurement();
