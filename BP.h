@@ -102,6 +102,9 @@ int diastolic_index = 0;
 float diastolic = 0;
 const float systolic_ratio = 0.55;
 const float diastolic_ratio = 0.75;  //decreased to 0.75 since taking values only shortly after systolic 
+bool diastolicFound = 0;
+bool systolicFound = 0;
+bool isSpiking = 0;
 //=============================================================================
 
 int tick_sample_pressure(int state) { // Handles reading of the pressure in the BP cuff and calculation of SYS and DIA
@@ -138,8 +141,8 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
           state = sample_pressure_OFF;
           break;
         }
-
-		// DEBUGGING: Dump all numbers in both pressure arrays to the serial monitor
+        
+        // DEBUGGING: Dump all numbers in both pressure arrays to the serial monitor
         for(int i = 0; i <= pa_index; ++i) {
           Serial.print(pressure_array[i]); Serial.print(", ");
         }
@@ -150,8 +153,8 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
         Serial.print("\n");
 
 
-		// Systolic
-        bool systolicFound = false; //ADDED
+        // Systolic
+        systolicFound = false; //ADDED
         // Systolic UPDATED 03/01: made index start at 1 since at 0 flags as false 
         for(int i = 1; i < max_HP_index; ++i) { //inclusive 1 to exclusive max_HP_index
           if(pressure_array[i] < 90.0 || pressure_array[i] > 160.0) continue; //ADDED 03/01: only consider within range 90-160
@@ -179,7 +182,7 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
 
         // Diastolic
         diastolic_index = max_HP_index; // Start from the max high pass pressure reading
-        bool diastolicFound = false; 
+        diastolicFound = false; 
         
         for(int i = max_HP_index; i <= pa_index; ++i) { // Inclusive max_HP_index to inclusive pa_index (pointing to the tail of the pressure arrays);
           if(pressure_array[i] < 60.0 || pressure_array[i] > 100.0) continue; //ADDED 03/01: only consider within range 60-100
@@ -188,7 +191,7 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
             diastolic_index = i;
             diastolicFound = true;
           }
-		  if(abs((pressure_array_HP[i] - (max_HP * diastolic_ratio))) <= 0.05) { // Stop searching for the diastolic index if the current index's value is within threshold
+		      if(abs((pressure_array_HP[i] - (max_HP * diastolic_ratio))) <= 0.05) { // Stop searching for the diastolic index if the current index's value is within threshold
             break;
           }
         }
@@ -198,7 +201,7 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
             if(abs(pressure_array_HP[i] - (max_HP * diastolic_ratio)) < abs(pressure_array_HP[diastolic_index] - (max_HP * diastolic_ratio))) {
               diastolic_index = i;
             }
-		  	if(abs((pressure_array_HP[i] - (max_HP * diastolic_ratio))) <= 0.05) { // Stop searching for the diastolic index if the current index's value is within threshold
+		  	  if(abs((pressure_array_HP[i] - (max_HP * diastolic_ratio))) <= 0.05) { // Stop searching for the diastolic index if the current index's value is within threshold
               break;
           	}
           }
@@ -217,10 +220,10 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
         Serial.print("Sys: "); Serial.println(systolic);
         Serial.print("Dia: "); Serial.println(diastolic);
 
-		// Flags
+        // Flags
         bpSensorReady = 1;
         BP_Vitals_Measuring = 0; // LLM flag - cuff finished, vitals ready!
-		autoRetryDone = false;   //ADDED 03/01: reset flag after measurement
+        autoRetryDone = false;   //ADDED 03/01: reset flag after measurement
         
         state = sample_pressure_OFF;
       }
@@ -230,7 +233,7 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
         // Flags
         is_releasing = 0;
         is_reading = 0;
-		bpSensorReady = 0;
+		    bpSensorReady = 0;
         BP_Vitals_Measuring = 1; // LLM flag - cuff started, now reading vitals...
 
         // Counters
@@ -267,15 +270,15 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
       curr_pressure = (mpr.readPressure() * hPa_to_mmHg) - baseline_pressure; // Using a set value for atmopsheric pressure from testing for now
       
       //ADDED 03/01: spiking loop to cut out spikes
-      bool isSpiking = (pa_index > 0 && curr_pressure > pressure_array[pa_index - 1] + 5.0f);
+      isSpiking = (pa_index > 0 && curr_pressure > pressure_array[pa_index - 1] + 5.0f);
       if(!isSpiking){
         curr_pressure_HP = hp1.filt(curr_pressure);  //filter if not a spike
       }
 
-	  // // DEBUGGING: Show current pressure, previous pressure, and change in pressure on serial monitor
+      // // DEBUGGING: Show current pressure, previous pressure, and change in pressure on serial monitor
       // Serial.println(prev_pressure); 
       // Serial.println(curr_pressure);
-	  // delta_pressure = curr_pressure - prev_pressure;
+      // delta_pressure = curr_pressure - prev_pressure;
       // Serial.println(delta_pressure);
 
       if(curr_pressure >= 160) { // Check if pressure is at 160 mmHg
@@ -321,11 +324,11 @@ int tick_sample_pressure(int state) { // Handles reading of the pressure in the 
       }
 
       if((curr_pressure <= 60 && is_reading == 1) || (pa_index == (pa_size - 1))) { // Finish measuring if pressure array is full or current pressure is <= 60
-		// // DEBUGGING: Notifies when the measurement has ended and gives the size of the pressure arrays
+        // // DEBUGGING: Notifies when the measurement has ended and gives the size of the pressure arrays
         // Serial.print("Stopping \n");
         // Serial.println(pa_index);
 
-		// Flags
+        // Flags
         is_releasing = 1;
         is_activated = 0;
         is_reading = 0;
@@ -415,5 +418,3 @@ float BP_getSystolic(){
 float BP_getDiastolic(){
     return diastolic;
 }
-
-
