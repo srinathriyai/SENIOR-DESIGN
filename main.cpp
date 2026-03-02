@@ -32,8 +32,12 @@ bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
 // BP sensor status
 bool PS_check_pass = false;
 
-static unsigned long lastBPTrigger = -120000;  //ADDED 03/01: so BP doesn't activate if http post fails
-const unsigned long BP_COOLDOWN = 120000;  //2 min interval between BP sampling
+//BP session controls 03/01
+static bool bpFiredThisSession = false; //ADDED 03/01: so BP doesn't activate if http post fails
+static bool lastBPReady = false;
+static bool lastBPMeasuring = false;
+static bool lastSenseState = false;
+static unsigned long senseOffTime = 0; 
 
 // LLM data output timing
 unsigned long lastLLMOutput = 0;
@@ -159,7 +163,7 @@ void setup(){
     Serial.println("\n=== READY ===");
     Serial.println("Press Start on UI to start sensing vitals");
     //Serial.println("Press A0 to start BP measurement");
-    
+
 }
 
 void loop(){
@@ -180,8 +184,6 @@ void loop(){
     //HR sensor start loop based on button, will be changed to call from LLM or something
     //pinMode(7, INPUT_PULLUP);
     //bool currentD6 = digitalRead(7);   //button press testing
-    //UI button press loop, waiting for UI 'start machine'
-    static bool lastSenseState = false;
 
     //ADDED 02/28: to limit loop call (same as getLiveEnabled)
     static uint32_t lastSensePoll = 0;
@@ -194,19 +196,35 @@ void loop(){
 
 
     if(!lastSenseState && senseNow){
-
         Serial.println("UI triggered - STARTING SENSORS");
+
         //ADDED 03/01: can only trigger BP once every 2 min to avoid triggering upon http post fail
-        unsigned long now = millis();
-        if(now - lastBPTrigger >= BP_COOLDOWN){
-            lastBPTrigger = now;
+        if(!bpFiredThisSession){
+            bpFiredThisSession = true;
             is_activated = 1;
+            //Serial.println("BP triggered");
         }
 
         TEMP_startMeasurement();
         HR_startMeasurement();
         RESP_startMeasurement();
     }
+    //ADDED 03/01: if ui off and bp cooldown 0 full stop and reset
+    if(lastSenseState && !senseNow) senseOffTime = millis();
+
+    //sense off 65+ seconds = manual stop, reset for next session
+    if(!senseNow && senseOffTime > 0 && (millis() - senseOffTime >= 65000)){
+        bpFiredThisSession = false;
+        senseOffTime = 0;
+    }
+
+    //completed successfully - reset so next cycle retrigggers
+    if(!lastBPReady && bpSensorReady) bpFiredThisSession = false;
+    lastBPReady = bpSensorReady;
+
+    //weak measurement) - reset so next cycle can retrigger
+    if(lastBPMeasuring && !BP_Vitals_Measuring && !bpSensorReady) bpFiredThisSession = false;
+    lastBPMeasuring = BP_Vitals_Measuring;
     lastSenseState = senseNow;
 
     //if(lastD6State == HIGH && currentD6 == LOW){
