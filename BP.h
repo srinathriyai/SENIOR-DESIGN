@@ -252,7 +252,7 @@ int tick_sample_pressure(int state) {
         break; // Ignores further code, and starts from the top again at the next period
       }
 
-			// Bandpass filter, cascading a low pass filter with cutoff frequency of 5 Hz with a high pass filter with cutoff frequency of 0.5 Hz (0.5 Hz to 5 Hz)
+      // Bandpass filter, cascading a low pass filter with cutoff frequency of 5 Hz with a high pass filter with cutoff frequency of 0.5 Hz (0.5 Hz to 5 Hz)
       curr_pressure = lp1.filt(curr_pressure);
       curr_pressure_HP = hp1.filt(curr_pressure);
 
