@@ -6,7 +6,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-//#include "esp_wpa2.h"
+// #include "esp_wpa2.h"
+// #include "eduroam_Creds.h"
 
 /*
         --------------2/16/26----------------
@@ -21,13 +22,13 @@ const char* WIFI_SSID = "iPhone";
 const char* WIFI_PASSWORD = "milliondollars";
 
 //PC server address - CHANGE to PC's local IP
-const char* PC_SERVER_URL = "http://172.20.10.3:8000/api/ingest";  //IP using ipconfig/ifconfig
+const char* PC_SERVER_URL = "http://:8000/api/ingest";  //IP using ipconfig/ifconfig
 
-const char* PC_LIVE_URL = "http://172.20.10.3:8000/api/live";
-const char* PC_LIVE_URL_SENSE = "http://172.20.10.3:8000/api/sense";
+const char* PC_LIVE_URL = "http://:8000/api/live";
+const char* PC_LIVE_URL_SENSE = "http://:8000/api/sense";
 
-//Button tracking for HR/TEMP system
-bool lastD6State = HIGH;  // Changed to D6 to avoid GPIO 2 conflict with BP
+// // Button Variables
+// bool lastD7State = HIGH;
 
 // BP sensor status
 bool PS_check_pass = false;
@@ -46,20 +47,25 @@ const unsigned long LLM_OUTPUT_INTERVAL = 3000;  //changed from 1 to 3 seconds
 void connectWiFi() {
     Serial.print("Connecting to WiFi");
     delay(100);
+
+    // ==============================================================================
+    // Regular WiFi (WPA/WPA2-PSK): change definitions not these
     WiFi.disconnect(true);
     WiFi.mode(WIFI_STA);
-    //regular WiFi (WPA/WPA2-PSK): change definitions not these
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    // ==============================================================================
     
-    //WPA2-Enterprise (uncomment if using campus eduroam):
+    // // ==============================================================================
+    // // WPA2-Enterprise (uncomment if using campus eduroam):
     // WiFi.disconnect(true);
     // WiFi.mode(WIFI_STA);
-    //esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
-    //esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
-    //esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
+    // esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
+    // esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
+    // esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
 
-    //esp_wifi_sta_wpa2_ent_enable();
-    //WiFi.begin(WIFI_SSID);
+    // esp_wifi_sta_wpa2_ent_enable();
+    // WiFi.begin(WIFI_SSID);
+    // // ==============================================================================
     
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -105,6 +111,7 @@ bool getSenseEnabled() {
     return body.indexOf("\"start\":true") >= 0;  // expects {"on":true/false}
 }
 
+bool onetime = 0;
 void setup(){
     while(!Serial);
     Serial.begin(115200);
@@ -162,8 +169,6 @@ void setup(){
     
     Serial.println("\n=== READY ===");
     Serial.println("Press Start on UI to start sensing vitals");
-    //Serial.println("Press A0 to start BP measurement");
-
 }
 
 void loop(){
@@ -181,11 +186,15 @@ void loop(){
     }
     //=============================================================================
 
-    //HR sensor start loop based on button, will be changed to call from LLM or something
-    //pinMode(7, INPUT_PULLUP);
-    //bool currentD6 = digitalRead(7);   //button press testing
+    // // Button Activation
+    // pinMode(7, INPUT_PULLUP);
+    // bool currentD7 = digitalRead(7);   //button press testing
+    // if(lastD7State == HIGH && currentD7 == LOW){
+    //     is_activated = 1;
+    // }
+    // lastD7State = currentD7;
 
-    //ADDED 02/28: to limit loop call (same as getLiveEnabled)
+    // ADDED 02/28: to limit loop call (same as getLiveEnabled)
     static uint32_t lastSensePoll = 0;
     static bool senseEnabled = false;
     if (millis() - lastSensePoll >= 2000) {
@@ -194,17 +203,18 @@ void loop(){
     }
     bool senseNow = senseEnabled;
 
-
     if(!lastSenseState && senseNow){
+    // if(!onetime){ // Use when no wifi and need to test sensors
         Serial.println("UI triggered - STARTING SENSORS");
-
+        delay(3000);
         //ADDED 03/01: can only trigger BP once every 2 min to avoid triggering upon http post fail
         if(!bpFiredThisSession){
             bpFiredThisSession = true;
             is_activated = 1;
-            //Serial.println("BP triggered");
+            Serial.println("BP triggered");
         }
 
+        onetime = 1;
         TEMP_startMeasurement();
         HR_startMeasurement();
         RESP_startMeasurement();
@@ -226,10 +236,6 @@ void loop(){
     if(lastBPMeasuring && !BP_Vitals_Measuring && !bpSensorReady) bpFiredThisSession = false;
     lastBPMeasuring = BP_Vitals_Measuring;
     lastSenseState = senseNow;
-
-    //if(lastD6State == HIGH && currentD6 == LOW){
-        //is_activated = 1;
-    //lastD6State = currentD6;
     
     //non-blocking
     TEMP_update();
