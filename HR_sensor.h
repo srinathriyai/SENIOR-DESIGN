@@ -31,6 +31,7 @@ const uint32_t IR_THRESHOLD = 50000;  //min IR value indicating finger is presen
 const uint16_t START_DELAY = 3000;    //wait 3 seconds after finger detected before measuring, help stablilize DC baseline
 const uint8_t SAMPLE_DELAY = 20;      //20ms between samples = 50Hz sampling rate, detect 40-180BPM
 const uint16_t MEASUREMENT_TIME = 20000;  //20 sec measurement window
+const uint16_t CYCLE_TIME = 20000;        //cycle time to reset sensor to mitigate stale values
 
 bool fingerOnSensor = false;          //flag for if finger detected
 uint32_t fingerDetectedTime = 0;      //stamp   when finger was first detected
@@ -75,8 +76,7 @@ const float SPO2_ALPHA = 0.4f;      //smoothing factor,slightly higher than BPM 
 
 //button handling globals
 bool hrActive = false;                  //flag for measurement currently active
-uint32_t lastButtonCheck = 0;                    //trackinglast time button was checked 
-const uint8_t BUTTON_DEBOUNCE = 50;         //50ms debounce  for button
+
 
 //Diagnostic globals, debugging signal quality issues with globals below
 bool diagnosticMode = true;    //enable detailed diagnostic output every 2 seconds
@@ -89,22 +89,11 @@ float minRedAC = 0;          //minimum Red AC value, during measuring
 
 //Sampling
 static unsigned long lastHRsample = 0;
+static unsigned long lastHRinit = 0;
 
-//initialize MAX30102 and button
-//port= 0..3 on the PCA9546 mux
-void HR_init();
 
-void HR_update();   //called in main.cpp loop()
-void HR_startMeasurement();
-
-//check if measurement is active, might be able to remove? Or needed for simultaenous 
-bool HR_isActive();
-
-void HR_init() {                    //Initializing
+void HR_init(){                    //Initializing
     //Serial.println("HR: init");  uncomment for debugging, but should be fine now
-
-    //button configuration, for debugging/testing will change later
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     //I2C communication at 400kHz (fast mode), fastest supported mode
     Wire.begin(I2C_SDA, I2C_SCL);
@@ -134,7 +123,6 @@ void HR_init() {                    //Initializing
     particleSensor.setPulseAmplitudeIR(60);
 
     //Serial.println("HR: MAX30102 ready");                    used for debugging, commented out for now
-    //Serial.println("Press button to start measurement...");
 }
 
 void HR_startMeasurement(){ 
@@ -149,27 +137,15 @@ void HR_update(){
 
     uint32_t now = millis();
 
-    //chheck button with debouncing to prevent false triggers
-    /*
-    if(!hrActive && (now - lastButtonCheck >= BUTTON_DEBOUNCE)){
-        if(digitalRead(BUTTON_PIN) == LOW) {  //button pressed (pulled to GND)
-            lastButtonCheck = now;
-            hrActive = true;
-            Serial.println("Button pressed. Place finger...");
-        }
+    if(now - lastHRinit >= CYCLE_TIME){   //re-initialize sensor to refresh IR values
+        HR_init();
+        lastHRsample = now;
     }
-    */
-
-    //exit early if no measurement is active
-    // if(!hrActive){
-    //     return; 
-    // }
-    if(now - lastHRsample >= SAMPLE_DELAY) { // Checks if it's time to execute update
-      lastHRsample = now;
-    } 
-    else{
+  
+    if(now - lastHRsample < SAMPLE_DELAY){ //checks if it's time to execute update
       return;
-    }
+    } 
+    lastHRsample = now;
 
     //read both IR and Red values from sensor, DC and AC components
     uint32_t ir = particleSensor.getIR();
@@ -250,7 +226,7 @@ void HR_update(){
         if (redAC < minRedAC) minRedAC = redAC;
 
         //Output, can change later on and make different for display
-        //print every 2 second for debuggin atm
+        //print every 2 second for debugging
         /*
         if(diagnosticMode && (now - lastDiagnostic >= 2000)){ 
             Serial.print("IR AC: ");
@@ -376,58 +352,6 @@ void HR_update(){
             //Serial.println(bpmCount);
         }
 
-        //IF measurements time ends
-        // if(now - startTime >= MEASUREMENT_TIME) { 
-        //     //hrActive = false;           //turn off active stuff
-        //     //fingerOnSensor = false;  //removed for continous looping unless finger is removed
-        //     measurementStarted = false;
-
-        //     Serial.println("\n========== MEASUREMENT COMPLETE ==========");
-        //     Serial.print("Total beats detected: ");
-        //     Serial.println(bpmCount);
-        //     /*
-        //     Serial.print("IR AC range: ");
-        //     Serial.print(minIRAC, 0);
-        //     Serial.print(" to ");
-        //     Serial.println(maxIRAC, 0);
-        //     Serial.print("Red AC range: ");
-        //     Serial.print(minRedAC, 0);
-        //     Serial.print(" to ");
-        //     Serial.println(maxRedAC, 0);
-        //     */
-
-        //     //oxygen calcuation (spO2)
-        //     if(bpmCount >= 5){        //min5 beats for reliable measurement
-        //         if(acSampleCount > 0){
-
-
-        //             //if(spo2Smoothed < 90){
-        //             //    spo2Smoothed = 0;
-        //             //}
-
-        //             //output data
-        //             Serial.print("Average BPM: ");
-        //             Serial.println(bpmFiltered, 1);
-        //             /*
-        //             Serial.print("R-value: ");
-        //             Serial.println(R, 3);
-        //             */
-        //             Serial.print("Calculated SpO2: ");
-        //             Serial.print(spo2, 1);
-        //             Serial.println("%");
-        //             Serial.print("Smoothed SpO2: ");
-        //             Serial.print(spo2Smoothed, 1);
-        //             Serial.println("%");
-        //         }
-        //     }
-        //     else{
-        //         Serial.println("WARNING: Insufficient beats detected");
-        //     }
-            //Serial.println("===========================================\n");
-            //Serial.println("Press button to measure again.");
-            
-        //}
-    //}
 }
 
 float HR_getMeasurement(){
