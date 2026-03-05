@@ -163,6 +163,7 @@ std::string buildClinicalDiagnosisPrompt(
       << "ENGLISH ONLY.\n"
       << "You are generating text for a senior design demo system. Not medical advice.\n"
       << "Use ONLY the numeric vitals and risk levels provided. Do NOT invent symptoms, history, diagnoses, meds, or labs.\n"
+      << "If a vital value is -1 it was not measured this session. Do not comment on it.\n"
       << "Do NOT output Name/Age/Gender/Visit. Do NOT repeat the vitals list.\n\n"
 
       << "Vitals (averaged): "

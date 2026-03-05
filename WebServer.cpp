@@ -329,8 +329,8 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                 // Right after a POST -> age_ms is tiny -> stale=false
                 std::cout << "[vitals] age_ms=" << age_ms
                         << " hasWifi=" << (g_hasWifiVitals ? 1 : 0) << std::endl;
-                // After ~3 seconds -> stale=true
-                stale = (age_ms > 3000);
+                // After ~6 seconds -> stale=true
+                stale = (age_ms > 6000);
             }
         }
 
@@ -396,12 +396,15 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
         Vitals v;
 
         //  UI/risk logic plan: -1 = not measured
+
+        //HRIYAI: 3/3/26 make sure -2 for BP isnt being used in average vitals.
         v.HR     = (int)jsonGetNumber(body, "HR",   jsonGetNumber(body, "hr",   -1));
         v.SpO2   = (int)jsonGetNumber(body, "SpO2", jsonGetNumber(body, "spo2", -1));
         v.Temp   = (float)jsonGetNumber(body, "Temp", jsonGetNumber(body, "temp", -1));
         v.Resp   = (int)jsonGetNumber(body, "Resp", jsonGetNumber(body, "resp", -1));
         v.BP_sys = (int)jsonGetNumber(body, "BP_sys", jsonGetNumber(body, "sys", -1));
         v.BP_dia = (int)jsonGetNumber(body, "BP_dia", jsonGetNumber(body, "dia", -1));
+
         {
             std::lock_guard<std::mutex> lock(g_vitalsMutex);
             g_latestFromWifi = v;
@@ -528,11 +531,11 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                 << "Date & Time of Visit: " << visit << "\n\n"
 
                 << "------- Patient Vitals: (Averaged data) -------\n\n"
-                << "HR: " << hr << " bpm\n"
-                << "SpO2: " << spo2 << " %\n"
-                << "Temperature: " << temp << " C\n"
-                << "Respiratory Rate: " << resp << " rpm\n"
-                << "BP: " << sys << "/" << dia << " mmHg\n\n"
+                << "HR: "               << (hr   < 0 ? "N/A" : std::to_string(hr))   << " bpm\n"
+                << "SpO2: "             << (spo2 < 0 ? "N/A" : std::to_string(spo2)) << " %\n"
+                << "Temperature: "      << (temp < 0 ? "N/A" : std::to_string(temp)) << " C\n"
+                << "Respiratory Rate: " << (resp < 0 ? "N/A" : std::to_string(resp)) << " rpm\n"
+                << "BP: "               << (sys  < 0 ? "N/A" : std::to_string(sys) + "/" + std::to_string(dia)) << " mmHg\n\n"
 
                 << "Disclaimer: All diagnoses are rendered from an AI and do not constitute professional medical advice.\n\n"
 
@@ -589,11 +592,11 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
             << "Date & Time of Visit: " << visit << "\n\n"
 
             << "------- Patient Vitals: (Averaged data) -------\n\n"
-            << "HR: " << hr << " bpm\n"
-            << "SpO2: " << spo2 << " %\n"
-            << "Temperature: " << temp << " C\n"
-            << "Respiratory Rate: " << resp << " rpm\n"
-            << "BP: " << sys << "/" << dia << " mmHg\n\n"
+            << "HR: "               << (hr   < 0 ? "N/A" : std::to_string(hr))   << " bpm\n"
+            << "SpO2: "             << (spo2 < 0 ? "N/A" : std::to_string(spo2)) << " %\n"
+            << "Temperature: "      << (temp < 0 ? "N/A" : std::to_string(temp)) << " C\n"
+            << "Respiratory Rate: " << (resp < 0 ? "N/A" : std::to_string(resp)) << " rpm\n"
+            << "BP: "               << (sys  < 0 ? "N/A" : std::to_string(sys) + "/" + std::to_string(dia)) << " mmHg\n\n"
 
             << "------- Overall Risk Level: -------\n"
             << riskTxt << "\n\n"
@@ -1232,7 +1235,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                         const SESSION_SECONDS = 180;
 
                         //FOR THE TIMER BUFFER
-                        const BUFFER_SECONDS = 60;
+                        const BUFFER_SECONDS = 90;
                         let sessionPhase = 'idle'; // 'idle' | 'running' | 'buffer'
 
                         let sessionRunning = false;
@@ -1264,8 +1267,11 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             sessionSamples.push({
                                 ts_iso: new Date().toISOString(),
                                 hr: v.hr, spo2: v.spo2, temp: v.temp, resp: v.resp, sys: v.sys, dia: v.dia,
-                                risk_hr: v.risk_hr, risk_spo2: v.risk_spo2, risk_temp: v.risk_temp,
-                                risk_resp: v.risk_resp, risk_bp: v.risk_bp
+                                risk_hr:   Math.max(0, v.risk_hr),
+                                risk_spo2: Math.max(0, v.risk_spo2),
+                                risk_temp: Math.max(0, v.risk_temp),
+                                risk_resp: Math.max(0, v.risk_resp),
+                                risk_bp:   Math.max(0, v.risk_bp)    // clamp to 0 minimum
                             });
                         }
 
@@ -1288,23 +1294,35 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                             return lines.join("\n");
                         } 
 
+                        // UPDATED 3/4/26
+                        
                         function computeAverages(samples) {
-                            const n = samples.length || 1;
-                            const mean = (arr, key) => arr.reduce((a,x)=>a + Number(x[key]||0), 0) / n;
+                            const validMean = (key) => {
+                                const valid = samples.filter(s => Number(s[key]) > 0);
+                                if (!valid.length) return -1;
+                                return valid.reduce((a,x) => a + Number(x[key]), 0) / valid.length;
+                            };
+
+                            // Risk scores should never be negative - default to 0 if no valid samples
+                            const validRisk = (key) => {
+                                const valid = samples.filter(s => Number(s[key]) >= 0);
+                                if (!valid.length) return 0;
+                                return valid.reduce((a,x) => a + Number(x[key]), 0) / valid.length;
+                            };
 
                             return {
-                                hr:   mean(samples, "hr"),
-                                spo2: mean(samples, "spo2"),
-                                temp: mean(samples, "temp"),
-                                resp: mean(samples, "resp"),
-                                sys:  mean(samples, "sys"),
-                                dia:  mean(samples, "dia"),
+                                hr:   validMean("hr"),
+                                spo2: validMean("spo2"),
+                                temp: validMean("temp"),
+                                resp: validMean("resp"),
+                                sys:  validMean("sys"),
+                                dia:  validMean("dia"),
 
-                                risk_hr:   Math.round(mean(samples, "risk_hr")),
-                                risk_spo2: Math.round(mean(samples, "risk_spo2")),
-                                risk_temp: Math.round(mean(samples, "risk_temp")),
-                                risk_resp: Math.round(mean(samples, "risk_resp")),
-                                risk_bp:   Math.round(mean(samples, "risk_bp"))
+                                risk_hr:   Math.round(validMean("risk_hr")),
+                                risk_spo2: Math.round(validMean("risk_spo2")),
+                                risk_temp: Math.round(validMean("risk_temp")),
+                                risk_resp: Math.round(validMean("risk_resp")),
+                                risk_bp:   Math.round(validMean("risk_bp"))
                             };
                         }
 
@@ -1317,6 +1335,7 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
 
                             const avg = computeAverages(samples);
                             const visit = new Date().toLocaleString();
+                            const fmtV = (v) => Number(v) < 0 ? -1 : Number(v);
 
                             const payload = {
                                 name: patient.name,
@@ -1324,20 +1343,19 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 gender: patient.gender,
                                 visit: visit,
 
-                                hr: avg.hr,
-                                spo2: avg.spo2,
-                                temp: avg.temp,
-                                resp: avg.resp,
-                                sys: avg.sys,
-                                dia: avg.dia,
+                                hr:   fmtV(avg.hr),
+                                spo2: fmtV(avg.spo2),
+                                temp: fmtV(avg.temp),
+                                resp: fmtV(avg.resp),
+                                sys:  fmtV(avg.sys),
+                                dia:  fmtV(avg.dia),
 
-                                risk_hr: avg.risk_hr,
+                                risk_hr:   avg.risk_hr,
                                 risk_spo2: avg.risk_spo2,
                                 risk_temp: avg.risk_temp,
                                 risk_resp: avg.risk_resp,
-                                risk_bp: avg.risk_bp
+                                risk_bp:   avg.risk_bp
                             };
-
                             try {
                                 console.log("DX payload:", payload);
 
