@@ -1,4 +1,5 @@
 // esp32_SIM_sender_main.cpp
+// UPDATED AS OF 3/9/26
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -24,6 +25,16 @@ static const char* NTP2 = "time.nist.gov";
 
 static uint32_t lastSend = 0;
 static float t = 0.0f;
+
+// ====== BP SIM STATE ======
+// 0 = not started (sends -1)
+// 1 = reading     (sends -2)
+// 2 = done        (sends real value)
+static int bpSimState = 0;
+static uint32_t bpSimTimer = 0;
+static float simSystolic  = 120.0f;
+static float simDiastolic = 80.0f;
+//
 
 static float clampf(float x, float lo, float hi) {
   if (x < lo) return lo;
@@ -116,45 +127,63 @@ void loop() {
   if (now - lastSend < SEND_PERIOD_MS) return;
   lastSend = now;
 
+  // ====== BP SIM STATE MACHINE ======
+  static uint32_t loopStartTime = 0;
+  if (loopStartTime == 0) loopStartTime = millis();
+
+  if (bpSimState == 0 && millis() - loopStartTime > 5000) {
+    // After 5s -> start reading
+    bpSimState = 1;
+    bpSimTimer = millis();
+    Serial.println("BP SIM: Reading...");
+  }
+  if (bpSimState == 1 && millis() - bpSimTimer > 15000) {
+    // After 15s of reading -> done, pick a random BP value
+    bpSimState = 2;
+    
+    // UPDATE BP VALUE - random normal BP with some noise, clamp to realistic range
+    simSystolic  = clampf(115.0f + random(-10, 10), 100, 125);  // normal range
+    simDiastolic = clampf(75.0f  + random(-5,  5),  60,  85);   // normal range
+    
+    Serial.printf("BP SIM: Done! %d/%d mmHg\n", (int)simSystolic, (int)simDiastolic);
+  }
+
+  String bpSysStr, bpDiaStr;
+  if (bpSimState == 0) {
+    bpSysStr = "-1"; bpDiaStr = "-1";  // N/A
+  } else if (bpSimState == 1) {
+    bpSysStr = "-2"; bpDiaStr = "-2";  // Reading...
+  } else {
+    bpSysStr = String((int)simSystolic);
+    bpDiaStr = String((int)simDiastolic);
+  }
+  // ==================================
+
   // Simulated vitals (changing)
   t += 0.18f;
-  /*
-  stable SIM vitals:
-   float HR    = 82.0f + 8.0f * sinf(t);
-  float SpO2  = 97.0f + 1.2f * sinf(t * 0.55f);
-  float Temp  = 36.9f + 0.2f * sinf(t * 0.20f);
-  float Resp  = 15.0f + 2.0f * sinf(t * 0.35f);
-  float BPsys = 120.0f + 6.0f * sinf(t * 0.28f);
-  float BPdia = 78.0f  + 4.0f * sinf(t * 0.31f);
-  */
-  float HR    = 95.0f  + 55.0f * sinf(t);          // swings 40-150 (hits risk 1,2,3)
-  float SpO2  = 94.0f  + 4.0f  * sinf(t * 0.55f);  // swings 90-98 (hits risk 1,2)
-  float Temp  = 37.5f  + 1.5f  * sinf(t * 0.20f);  // swings 36-39 (hits risk 1,2)
-  float Resp  = 20.0f  + 12.0f * sinf(t * 0.35f);  // swings 8-32 (hits risk 1,2,3)
-  float BPsys = 135.0f + 35.0f * sinf(t * 0.28f);  // swings 100-170 (hits risk 1,2,3)
-  float BPdia = 88.0f  + 20.0f * sinf(t * 0.31f);  // swings 68-108 (hits risk 1,2,3)
- 
-  HR    = clampf(HR, 50, 140);
-  SpO2  = clampf(SpO2, 85, 100);
-  Temp  = clampf(Temp, 34, 41);
-  Resp  = clampf(Resp, 6, 35);
-  BPsys = clampf(BPsys, 80, 180);
-  BPdia = clampf(BPdia, 50, 120);
+
+  // Risk 0 ranges: HR 60-100, SpO2 95-100, Temp 36-37.5, Resp 12-20, BP 90-120/60-80
+  // Small swings to occasionally hit risk 1
+  float HR   = clampf(80.0f + 8.0f  * sinf(t),         60,  105);  // mostly 72-88, occasionally hits 100-105 (risk 1)
+  float SpO2 = clampf(97.0f + 1.5f  * sinf(t * 0.55f), 94,  100);  // mostly 96-98, occasionally hits 94-95 (risk 1)
+  float Temp = clampf(36.8f + 0.4f  * sinf(t * 0.20f), 36,   38);  // mostly 36.4-37.2, occasionally hits 37.6-38 (risk 1)
+  float Resp = clampf(15.0f + 3.0f  * sinf(t * 0.35f), 10,   22);  // mostly 12-18, occasionally hits 21-24 (risk 1)
 
   // JSON matches your server parser keys exactly:
+   // All other vitals always send real values
   String json =
-    String("{") +
-    "\"timestamp\":\"" + isoTimestampUTC() + "\"," +
-    "\"source\":\"******ESP32_WROOM_FREENOVE******\"," +
-    "\"device_ip\":\"" + WiFi.localIP().toString() + "\"," +
-    "\"seq\":" + String(seq++) + "," +
-    "\"HR\":" + String((int)roundf(HR)) + "," +
-    "\"SpO2\":" + String((int)roundf(SpO2)) + "," +
-    "\"Temp\":" + String(Temp, 1) + "," +
-    "\"Resp\":" + String((int)roundf(Resp)) + "," +
-    "\"BP_sys\":" + String((int)roundf(BPsys)) + "," +
-    "\"BP_dia\":" + String((int)roundf(BPdia)) +
-    "}";
+      String("{") +
+      "\"timestamp\":\"" + isoTimestampUTC() + "\"," +
+      "\"source\":\"******ESP32_WROOM_FREENOVE******\"," +
+      "\"device_ip\":\"" + WiFi.localIP().toString() + "\"," +
+      "\"seq\":" + String(seq++) + "," +
+      "\"HR\":"   + String((int)roundf(HR))   + "," +
+      "\"SpO2\":" + String((int)roundf(SpO2)) + "," +
+      "\"Temp\":" + String(Temp, 1)           + "," +
+      "\"Resp\":" + String((int)roundf(Resp)) + "," +
+      "\"BP_sys\":" + bpSysStr + "," +
+      "\"BP_dia\":" + bpDiaStr +
+      "}";
 
   HTTPClient http;
   http.begin(INGEST_URL);
@@ -162,9 +191,10 @@ void loop() {
   int code = http.POST((uint8_t*)json.c_str(), json.length());
   http.end();
 
-  Serial.print("POST code=");
-  Serial.print(code);
-  Serial.print("  payload=");
   //TO SEE WHAT THE ESP32 IS SENDING, UNCOMMENT THE LINE BELOW
   //Serial.println(json);
+
+  Serial.print("POST code="); Serial.print(code);
+  Serial.print("  BP state="); Serial.print(bpSimState);
+  Serial.print("  BP="); Serial.println(bpSysStr + "/" + bpDiaStr);
 }
