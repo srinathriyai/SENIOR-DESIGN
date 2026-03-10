@@ -1318,11 +1318,11 @@ void startWebServer(const Vitals& current, const std::string& /*unused*/) {
                                 sys:  validMean("sys"),
                                 dia:  validMean("dia"),
 
-                                risk_hr:   Math.round(validMean("risk_hr")),
-                                risk_spo2: Math.round(validMean("risk_spo2")),
-                                risk_temp: Math.round(validMean("risk_temp")),
-                                risk_resp: Math.round(validMean("risk_resp")),
-                                risk_bp:   Math.round(validMean("risk_bp"))
+                                risk_hr:   Math.round(validRisk("risk_hr")),
+                                risk_spo2: Math.round(validRisk("risk_spo2")),
+                                risk_temp: Math.round(validRisk("risk_temp")),
+                                risk_resp: Math.round(validRisk("risk_resp")),
+                                risk_bp:   Math.round(validRisk("risk_bp"))
                             };
                         }
 
