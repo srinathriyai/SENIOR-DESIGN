@@ -283,7 +283,7 @@ int tick_sample_pressure(int state) {
                 pa_index = pa_index + 1;
               }
             } else if(curr_pressure <= 75) {
-              if (curr_pressure_HP < 1.25) {
+              if (curr_pressure_HP < 1) {
                 pressure_array_HP[pa_index] = curr_pressure_HP;
                 pressure_array[pa_index] = curr_pressure;
                 pa_index = pa_index + 1;
