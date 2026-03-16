@@ -86,21 +86,21 @@ int baseline_samples = 3; // # of samples to take for the baseline average
 const int pa_size = 1600; // max # of samples to take INCREASED 03/01: to 1600
 int pa_index = 0;
 float pressure_array[pa_size];
-float pressure_array_HP[pa_size];
+float pressure_array_OSC[pa_size];
 
 // Values
 float prev_pressure = 0;
-float curr_pressure_HP = 0;
+float curr_pressure_OSC = 0;
 
 // Analysis
 const float hPa_to_mmHg = 0.75006;
 float delta_pressure = 0;
 float curr_val = 0; // Variable for temporarily selecting values
-float max_HP = 0;
-int max_HP_index = 0;
-int systolic_index = 0;
+float max_OSC = 0;
+int max_OSC_index = 0;
+int sys_OSC = 0;
 float systolic = 0;
-int diastolic_index = 0;
+int dia_OSC = 0;
 float diastolic = 0;
 const float systolic_ratio = 0.55;
 const float diastolic_ratio = 0.65; 
@@ -126,11 +126,11 @@ int tick_sample_pressure(int state) {
     case sample_pressure_ON:
       if(is_activated == 0) { // When completed measurement
         for(int i = 0; i <= pa_index; ++i){
-          curr_val = pressure_array_HP[i];
+          curr_val = pressure_array_OSC[i];
 
-          if(curr_val > max_HP){
-            max_HP = curr_val;
-            max_HP_index = i;
+          if(curr_val > max_OSC){
+            max_OSC = curr_val;
+            max_OSC_index = i;
           }
         }
         
@@ -140,54 +140,54 @@ int tick_sample_pressure(int state) {
         }
         Serial.print("\n");
         for(int i = 0; i <= pa_index; ++i) {
-          Serial.print(pressure_array_HP[i]); Serial.print(", ");
+          Serial.print(pressure_array_OSC[i]); Serial.print(", ");
         }
         Serial.print("\n");
 
         // Systolic
-        for(int i = 1; i < max_HP_index; ++i) { 
+        for(int i = 1; i < max_OSC_index; ++i) { 
           if((pressure_array[i] < 90.0) || (pressure_array[i] > 130.0)) { // If not within 90-130, go to next iteration
             continue; // Skips remaining code and proceeds to next iteration
           }
-          if(abs((pressure_array_HP[i] - (max_HP * systolic_ratio))) < abs((pressure_array_HP[systolic_index] - (max_HP * systolic_ratio)))) { // Choose the closest HP to the sys ratio value
-            // Serial.print("Picked "); Serial.print(i); Serial.print(" because ");  Serial.print(abs((pressure_array_HP[i] - (max_HP * systolic_ratio)))); Serial.print(" is less than "); Serial.println(abs((pressure_array_HP[systolic_index] - (max_HP * systolic_ratio))));
-            systolic_index = i;
+          if(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio))) < abs((pressure_array_OSC[sys_OSC] - (max_OSC * systolic_ratio)))) { // Choose the closest HP to the sys ratio value
+            // Serial.print("Picked "); Serial.print(i); Serial.print(" because ");  Serial.print(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio)))); Serial.print(" is less than "); Serial.println(abs((pressure_array_OSC[sys_OSC] - (max_OSC * systolic_ratio))));
+            sys_OSC = i;
           }
-          if(abs((pressure_array_HP[i] - (max_HP * systolic_ratio))) <= 0.05) { // Stop searching for the systolic index if the current index's value is within threshold
+          if(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio))) <= 0.05) { // Stop searching for the systolic index if the current index's value is within threshold
             break;
           }
         }
-        systolic = pressure_array[systolic_index];
+        systolic = pressure_array[sys_OSC];
 
         // Diastolic
-        diastolic_index = max_HP_index; // Start from the max high pass pressure reading
+        dia_OSC = max_OSC_index; // Start from the max high pass pressure reading
         
-        for(int i = pa_index; i > max_HP_index; --i) { // Inclusive max_HP_index to inclusive pa_index (pointing to the tail of the pressure arrays);
+        for(int i = pa_index; i > max_OSC_index; --i) { // Inclusive max_OSC_index to inclusive pa_index (pointing to the tail of the pressure arrays);
           if((pressure_array[i] < 60.0) || (pressure_array[i] > 100.0)) { // If not within 60-100, go to next iteration
             continue; // Skips remaining code and proceeds to next iteration
           }
-          if(abs(pressure_array_HP[i] - (max_HP * diastolic_ratio)) < abs(pressure_array_HP[diastolic_index] - (max_HP * diastolic_ratio))) { // Choose the closest HP to the dia ratio value 
-            diastolic_index = i;
+          if(abs(pressure_array_OSC[i] - (max_OSC * diastolic_ratio)) < abs(pressure_array_OSC[dia_OSC] - (max_OSC * diastolic_ratio))) { // Choose the closest HP to the dia ratio value 
+            dia_OSC = i;
           }
-          if(abs((pressure_array_HP[i] - (max_HP * diastolic_ratio))) <= 0.05) break; // Stop searching for the diastolic index if the current index's value is within threshold
+          if(abs((pressure_array_OSC[i] - (max_OSC * diastolic_ratio))) <= 0.05) break; // Stop searching for the diastolic index if the current index's value is within threshold
         }
-        diastolic = pressure_array[diastolic_index];
+        diastolic = pressure_array[dia_OSC];
 
         // Output all results
-        Serial.print("Max Val: "); Serial.println(max_HP);
-        Serial.print("Max Index: "); Serial.println(max_HP_index);
+        Serial.print("Max Val: "); Serial.println(max_OSC);
+        Serial.print("Max Index: "); Serial.println(max_OSC_index);
 
-        Serial.print("Systolic Val: "); Serial.println(pressure_array_HP[systolic_index]);
-        Serial.print("Systolic Index: "); Serial.println(systolic_index);
+        Serial.print("Systolic Val: "); Serial.println(pressure_array_OSC[sys_OSC]);
+        Serial.print("Systolic Index: "); Serial.println(sys_OSC);
 
-        Serial.print("Diastolic Val: "); Serial.println(pressure_array_HP[diastolic_index]);
-        Serial.print("Diastolic Index: "); Serial.println(diastolic_index);
+        Serial.print("Diastolic Val: "); Serial.println(pressure_array_OSC[dia_OSC]);
+        Serial.print("Diastolic Index: "); Serial.println(dia_OSC);
 
         Serial.print("Sys: "); Serial.println(systolic);
         Serial.print("Dia: "); Serial.println(diastolic);
 
         // // Extra redundancy: Checks if the measurement did not go very wrong
-        // if(pa_index < 20 || max_HP < 0.3f || systolic_index == 0 || diastolic_index == 0){   //less than 20 samples, 130mmHg reached and max_HP has real values not noise     
+        // if(pa_index < 20 || max_OSC < 0.3f || sys_OSC == 0 || dia_OSC == 0){   //less than 20 samples, 130mmHg reached and max_OSC has real values not noise     
         //   Serial.println("==== WARNING: Weak measurement - retry via UI ====");
         //   bpSensorReady = 0;
         //   BP_Vitals_Measuring = 0;
@@ -216,13 +216,13 @@ int tick_sample_pressure(int state) {
         // Analysis
         pa_index = 0;
         baseline_pressure = 0;
-        systolic_index = 0;
-        diastolic_index = 0;
-        max_HP = 0;
-        max_HP_index = 0;
+        sys_OSC = 0;
+        dia_OSC = 0;
+        max_OSC = 0;
+        max_OSC_index = 0;
         systolic = 0;
         diastolic = 0;
-        curr_pressure_HP = 0;
+        curr_pressure_OSC = 0;
         prev_pressure = 0;
 
         //ADDED 03/01: reinitialize, dont grab value from the end of last run(too low)
@@ -254,7 +254,7 @@ int tick_sample_pressure(int state) {
 
       // Bandpass filter, cascading a low pass filter with cutoff frequency of 5 Hz with a high pass filter with cutoff frequency of 0.5 Hz (0.5 Hz to 5 Hz)
       curr_pressure = lp1.filt(curr_pressure);
-      curr_pressure_HP = hp1.filt(curr_pressure);
+      curr_pressure_OSC = hp1.filt(curr_pressure);
 
       // Serial.println(prev_pressure); 
       // Serial.println(curr_pressure);
@@ -268,29 +268,29 @@ int tick_sample_pressure(int state) {
       if(is_reading == 1) {
         // Only take the value if it's within the expected threshold (threshold obtained through experimentation) Currently: [-0.5 to 2]
         if(curr_pressure <= 160){  // Start reading if less than the assigned value (Usually pressure reaches (this value + 20 mmHg))
-          if(curr_pressure_HP < 0) { // Negative Cases
-            if(curr_pressure_HP > -0.5){
-              curr_pressure_HP = curr_pressure_HP * -1;
-              pressure_array_HP[pa_index] = curr_pressure_HP;
+          if(curr_pressure_OSC < 0) { // Negative Cases
+            if(curr_pressure_OSC > -0.5){
+              curr_pressure_OSC = curr_pressure_OSC * -1;
+              pressure_array_OSC[pa_index] = curr_pressure_OSC;
               pressure_array[pa_index] = curr_pressure;
               pa_index = pa_index + 1;
             }
           } else { // Positive Cases
             if (curr_pressure >= 140) {
-              if (curr_pressure_HP < 1) {
-                pressure_array_HP[pa_index] = curr_pressure_HP;
+              if (curr_pressure_OSC < 1) {
+                pressure_array_OSC[pa_index] = curr_pressure_OSC;
                 pressure_array[pa_index] = curr_pressure;
                 pa_index = pa_index + 1;
               }
             } else if(curr_pressure <= 75) {
-              if (curr_pressure_HP < 1) {
-                pressure_array_HP[pa_index] = curr_pressure_HP;
+              if (curr_pressure_OSC < 1) {
+                pressure_array_OSC[pa_index] = curr_pressure_OSC;
                 pressure_array[pa_index] = curr_pressure;
                 pa_index = pa_index + 1;
               }
             } else {
-              if(curr_pressure_HP < 2) {
-                pressure_array_HP[pa_index] = curr_pressure_HP;
+              if(curr_pressure_OSC < 2) {
+                pressure_array_OSC[pa_index] = curr_pressure_OSC;
                 pressure_array[pa_index] = curr_pressure;
                 pa_index = pa_index + 1;
               }
