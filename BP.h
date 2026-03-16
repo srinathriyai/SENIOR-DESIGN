@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 // =================================================================================================
-// FOR CIRCUIT DIAGRAM REFER TO: FINAL CIRCUIT DIAGRAM
+// FOR CIRCUIT SCHEMATIC REFER TO FINAL REPORT
 // =================================================================================================
 // Filter declarations
 HighPass<1> hp1(0.5, 13, true);
@@ -98,9 +98,9 @@ float delta_pressure = 0;
 float curr_val = 0; // Variable for temporarily selecting values
 float max_OSC = 0;
 int max_OSC_index = 0;
-int sys_OSC = 0;
+int sys_OSC_index = 0;
 float systolic = 0;
-int dia_OSC = 0;
+int dia_OSC_index = 0;
 float diastolic = 0;
 const float systolic_ratio = 0.55;
 const float diastolic_ratio = 0.65; 
@@ -149,45 +149,45 @@ int tick_sample_pressure(int state) {
           if((pressure_array[i] < 90.0) || (pressure_array[i] > 130.0)) { // If not within 90-130, go to next iteration
             continue; // Skips remaining code and proceeds to next iteration
           }
-          if(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio))) < abs((pressure_array_OSC[sys_OSC] - (max_OSC * systolic_ratio)))) { // Choose the closest HP to the sys ratio value
-            // Serial.print("Picked "); Serial.print(i); Serial.print(" because ");  Serial.print(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio)))); Serial.print(" is less than "); Serial.println(abs((pressure_array_OSC[sys_OSC] - (max_OSC * systolic_ratio))));
-            sys_OSC = i;
+          if(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio))) < abs((pressure_array_OSC[sys_OSC_index] - (max_OSC * systolic_ratio)))) { // Choose the closest HP to the sys ratio value
+            // Serial.print("Picked "); Serial.print(i); Serial.print(" because ");  Serial.print(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio)))); Serial.print(" is less than "); Serial.println(abs((pressure_array_OSC[sys_OSC_index] - (max_OSC * systolic_ratio))));
+            sys_OSC_index = i;
           }
           if(abs((pressure_array_OSC[i] - (max_OSC * systolic_ratio))) <= 0.05) { // Stop searching for the systolic index if the current index's value is within threshold
             break;
           }
         }
-        systolic = pressure_array[sys_OSC];
+        systolic = pressure_array[sys_OSC_index];
 
         // Diastolic
-        dia_OSC = max_OSC_index; // Start from the max high pass pressure reading
+        dia_OSC_index = max_OSC_index; // Start from the max high pass pressure reading
         
         for(int i = pa_index; i > max_OSC_index; --i) { // Inclusive max_OSC_index to inclusive pa_index (pointing to the tail of the pressure arrays);
           if((pressure_array[i] < 60.0) || (pressure_array[i] > 100.0)) { // If not within 60-100, go to next iteration
             continue; // Skips remaining code and proceeds to next iteration
           }
-          if(abs(pressure_array_OSC[i] - (max_OSC * diastolic_ratio)) < abs(pressure_array_OSC[dia_OSC] - (max_OSC * diastolic_ratio))) { // Choose the closest HP to the dia ratio value 
-            dia_OSC = i;
+          if(abs(pressure_array_OSC[i] - (max_OSC * diastolic_ratio)) < abs(pressure_array_OSC[dia_OSC_index] - (max_OSC * diastolic_ratio))) { // Choose the closest HP to the dia ratio value 
+            dia_OSC_index = i;
           }
           if(abs((pressure_array_OSC[i] - (max_OSC * diastolic_ratio))) <= 0.05) break; // Stop searching for the diastolic index if the current index's value is within threshold
         }
-        diastolic = pressure_array[dia_OSC];
+        diastolic = pressure_array[dia_OSC_index];
 
         // Output all results
         Serial.print("Max Val: "); Serial.println(max_OSC);
         Serial.print("Max Index: "); Serial.println(max_OSC_index);
 
-        Serial.print("Systolic Val: "); Serial.println(pressure_array_OSC[sys_OSC]);
-        Serial.print("Systolic Index: "); Serial.println(sys_OSC);
+        Serial.print("Systolic Val: "); Serial.println(pressure_array_OSC[sys_OSC_index]);
+        Serial.print("Systolic Index: "); Serial.println(sys_OSC_index);
 
-        Serial.print("Diastolic Val: "); Serial.println(pressure_array_OSC[dia_OSC]);
-        Serial.print("Diastolic Index: "); Serial.println(dia_OSC);
+        Serial.print("Diastolic Val: "); Serial.println(pressure_array_OSC[dia_OSC_index]);
+        Serial.print("Diastolic Index: "); Serial.println(dia_OSC_index);
 
         Serial.print("Sys: "); Serial.println(systolic);
         Serial.print("Dia: "); Serial.println(diastolic);
 
         // // Extra redundancy: Checks if the measurement did not go very wrong
-        // if(pa_index < 20 || max_OSC < 0.3f || sys_OSC == 0 || dia_OSC == 0){   //less than 20 samples, 130mmHg reached and max_OSC has real values not noise     
+        // if(pa_index < 20 || max_OSC < 0.3f || sys_OSC_index == 0 || dia_OSC_index == 0){   //less than 20 samples, 130mmHg reached and max_OSC has real values not noise     
         //   Serial.println("==== WARNING: Weak measurement - retry via UI ====");
         //   bpSensorReady = 0;
         //   BP_Vitals_Measuring = 0;
@@ -216,8 +216,8 @@ int tick_sample_pressure(int state) {
         // Analysis
         pa_index = 0;
         baseline_pressure = 0;
-        sys_OSC = 0;
-        dia_OSC = 0;
+        sys_OSC_index = 0;
+        dia_OSC_index = 0;
         max_OSC = 0;
         max_OSC_index = 0;
         systolic = 0;
