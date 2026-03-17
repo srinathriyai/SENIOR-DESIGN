@@ -1,3 +1,4 @@
+#include "HR_sensor.h"
 #include <Wire.h>
 #include "MAX30105.h"
 
